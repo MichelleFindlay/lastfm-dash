@@ -64,6 +64,15 @@ return [
     'cron_enabled' => false,
     'cron_secret'  => '',
 
+    // Quick-listen links (Spotify / YouTube Music) on the current track and
+    // on hover over any track row. Work out of the box as plain search
+    // links with zero setup; adding credentials upgrades them to a
+    // verified direct link to the exact track. See lib/ListenLinks.php for
+    // where to get each one (both are free).
+    'spotify_client_id'     => '',
+    'spotify_client_secret' => '',
+    'youtube_api_key'       => '',
+
     // Footer "update available" check: compares the app's own version (the
     // VERSION file at the project root — not this config) against the
     // latest published release on this GitHub repo. Set github_repo to ''

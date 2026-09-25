@@ -10,6 +10,7 @@ if (function_exists('set_time_limit')) {
 
 require __DIR__ . '/lib/LastFm.php';
 require __DIR__ . '/lib/VersionCheck.php';
+require __DIR__ . '/lib/ListenLinks.php';
 
 function e(?string $value): string
 {
@@ -96,6 +97,14 @@ $config += [
     // visible whether background cache warming is actually in place.
     'cron_enabled' => false,
     'cron_secret'  => '',
+
+    // Quick-listen links (Spotify / YouTube Music) on the current track and
+    // on hover over any track row. Work out of the box as plain search
+    // links; adding these upgrades them to a verified direct link to the
+    // exact track — see lib/ListenLinks.php for where to get each one.
+    'spotify_client_id'     => '',
+    'spotify_client_secret' => '',
+    'youtube_api_key'       => '',
 ];
 
 $needsSetup = $configMissing
@@ -112,6 +121,7 @@ $apiError = false;
 
 if (!$needsSetup) {
     $lastfm = new LastFm($config['api_key'], $config['username'], (int) $config['cache_ttl']);
+    $listenLinks = new ListenLinks($config, __DIR__);
 
     $recent = $lastfm->getRecentTracks(1);
     $recentTrack = $recent['recenttracks']['track'][0] ?? null;
@@ -119,17 +129,16 @@ if (!$needsSetup) {
     if ($recentTrack) {
         $artist = $recentTrack['artist']['#text'] ?? ($recentTrack['artist']['name'] ?? '');
         $album = $recentTrack['album']['#text'] ?? '';
-        $trackArt = LastFm::bestImage($recentTrack['image'] ?? []);
-        $albumArt = $lastfm->getAlbumArt($artist, $album) ?: $trackArt;
+        $art = LastFm::bestImage($recentTrack['image'] ?? []);
+        $listen = $listenLinks->forTrack($artist, $recentTrack['name'] ?? '');
 
         $nowPlaying = [
             'now_playing' => ($recentTrack['@attr']['nowplaying'] ?? '') === 'true',
             'name'        => $recentTrack['name'] ?? '',
             'artist'      => $artist,
             'album'       => $album,
-            'image'       => $trackArt,
-            'track_art'   => $trackArt,
-            'album_art'   => $albumArt,
+            'listen'      => $listen,
+            'image'       => $art,
         ];
     } else {
         $apiError = true;
@@ -230,21 +239,11 @@ if (!empty($config['github_repo'])) {
 
     <?php $heroInitial = strtoupper(substr($nowPlaying['name'] ?? '?', 0, 1)); ?>
     <section class="now-playing">
-        <div class="art-group">
-            <div class="art-tile">
-                <span class="art-tile-fallback" data-track-art-fallback
-                      style="<?= empty($nowPlaying['track_art']) ? '' : 'display:none' ?>"><?= e($heroInitial) ?></span>
-                <img data-track-art-img src="<?= e($nowPlaying['track_art'] ?? '') ?>" alt="Track art"
-                     style="<?= empty($nowPlaying['track_art']) ? 'display:none' : '' ?>">
-                <span class="art-label">Track</span>
-            </div>
-            <div class="art-tile">
-                <span class="art-tile-fallback" data-album-art-fallback
-                      style="<?= empty($nowPlaying['album_art']) ? '' : 'display:none' ?>"><?= e($heroInitial) ?></span>
-                <img data-album-art-img src="<?= e($nowPlaying['album_art'] ?? '') ?>" alt="Album art"
-                     style="<?= empty($nowPlaying['album_art']) ? 'display:none' : '' ?>">
-                <span class="art-label">Album</span>
-            </div>
+        <div class="art-tile">
+            <span class="art-tile-fallback" data-art-fallback
+                  style="<?= empty($nowPlaying['image']) ? '' : 'display:none' ?>"><?= e($heroInitial) ?></span>
+            <img data-art-img src="<?= e($nowPlaying['image'] ?? '') ?>" alt="Album art"
+                 style="<?= empty($nowPlaying['image']) ? 'display:none' : '' ?>">
         </div>
         <div class="info">
             <div class="status-badge" data-status-badge>
@@ -255,6 +254,27 @@ if (!empty($config['github_repo'])) {
             <p class="track-name" data-track-name><?= e($nowPlaying['name'] ?? 'No recent tracks') ?></p>
             <p class="track-artist" data-track-artist><?= e($nowPlaying['artist'] ?? '') ?></p>
             <p class="track-album" data-track-album><?= e($nowPlaying['album'] ?? '') ?></p>
+            <div class="listen-links" data-listen-links>
+                <?php $listen = $nowPlaying['listen'] ?? null; ?>
+                <a class="listen-link listen-spotify" data-listen-spotify
+                   href="<?= e($listen['spotify']['url'] ?? '') ?>" target="_blank" rel="noopener"
+                   title="<?= !empty($listen['spotify']['verified']) ? 'Listen on Spotify' : 'Search on Spotify' ?>"
+                   style="<?= empty($listen['spotify']['url']) ? 'display:none' : '' ?>">
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                        <path fill="currentColor" d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
+                    </svg>
+                    <span class="listen-label"><?= !empty($listen['spotify']['verified']) ? 'Listen' : 'Search' ?></span>
+                </a>
+                <a class="listen-link listen-youtube" data-listen-youtube
+                   href="<?= e($listen['youtube']['url'] ?? '') ?>" target="_blank" rel="noopener"
+                   title="<?= !empty($listen['youtube']['verified']) ? 'Listen on YouTube Music' : 'Search on YouTube Music' ?>"
+                   style="<?= empty($listen['youtube']['url']) ? 'display:none' : '' ?>">
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                        <path fill="currentColor" d="M12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm0 19.104c-3.924 0-7.104-3.18-7.104-7.104S8.076 4.896 12 4.896s7.104 3.18 7.104 7.104-3.18 7.104-7.104 7.104zm0-13.332c-3.432 0-6.228 2.796-6.228 6.228S8.568 18.228 12 18.228s6.228-2.796 6.228-6.228S15.432 5.772 12 5.772zM9.684 15.54V8.46L15.816 12l-6.132 3.54z"/>
+                    </svg>
+                    <span class="listen-label"><?= !empty($listen['youtube']['verified']) ? 'Listen' : 'Search' ?></span>
+                </a>
+            </div>
         </div>
     </section>
 
@@ -292,11 +312,12 @@ if (!empty($config['github_repo'])) {
                 ? '<img src="' . e($art) . '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'\';">'
                     . '<span class="thumb-fallback" style="display:none">' . e($initial) . '</span>'
                 : e($initial);
-            echo '<li class="track-row">'
+            echo '<li class="track-row" data-artist="' . e($artistName) . '" data-track="' . e($t['name'] ?? '') . '">'
                 . '<span class="rank">' . ($i + 1) . '</span>'
                 . '<span class="thumb">' . $thumb . '</span>'
                 . '<span class="meta"><div class="name">' . e($t['name'] ?? '') . '</div><div class="artist">' . e($artistName) . '</div></span>'
                 . '<span class="count">' . number_format($playcount) . ' plays<div class="bar"><div class="bar-fill" style="width: ' . $pct . '%"></div></div></span>'
+                . '<span class="listen-links-hover" data-listen-links-hover></span>'
                 . '</li>';
         }
         echo '</ol>';

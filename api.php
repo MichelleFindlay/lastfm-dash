@@ -8,6 +8,7 @@
 header('Content-Type: application/json');
 
 require __DIR__ . '/lib/LastFm.php';
+require __DIR__ . '/lib/ListenLinks.php';
 
 $configFile = __DIR__ . '/config.php';
 if (!is_file($configFile)) {
@@ -22,6 +23,7 @@ $config = require $configFile;
 // fresh data, while still de-duplicating any near-simultaneous requests.
 $pollSeconds = max(1, (int) ($config['poll_interval_ms'] ?? 10000) / 1000);
 $lastfm = new LastFm($config['api_key'], $config['username'], max(3, $pollSeconds - 2));
+$listenLinks = new ListenLinks($config, __DIR__);
 $recent = $lastfm->getRecentTracks(1);
 
 $track = $recent['recenttracks']['track'][0] ?? null;
@@ -34,8 +36,7 @@ if (!$track) {
 $isNowPlaying = ($track['@attr']['nowplaying'] ?? '') === 'true';
 $artist = $track['artist']['#text'] ?? ($track['artist']['name'] ?? '');
 $album = $track['album']['#text'] ?? '';
-$trackArt = LastFm::bestImage($track['image'] ?? []);
-$albumArt = $lastfm->getAlbumArt($artist, $album) ?: $trackArt;
+$art = LastFm::bestImage($track['image'] ?? []);
 
 echo json_encode([
     'ok'          => true,
@@ -43,10 +44,9 @@ echo json_encode([
     'name'        => $track['name'] ?? '',
     'artist'      => $artist,
     'album'       => $album,
-    'image'       => $trackArt,
-    'track_art'   => $trackArt,
-    'album_art'   => $albumArt,
+    'image'       => $art,
     'url'         => $track['url'] ?? '',
     'date'        => $track['date']['#text'] ?? null,
     'stats'       => LastFm::formatLifetimeStats($lastfm->getInfo()),
+    'listen'      => $listenLinks->forTrack($artist, $track['name'] ?? ''),
 ]);

@@ -204,21 +204,6 @@ class LastFm
     }
 
     /**
-     * The album's own artwork, fetched independently of the track's
-     * artwork so the two can be shown side by side even when they differ.
-     */
-    public function getAlbumArt(string $artist, string $album): string
-    {
-        if ($artist === '' || $album === '') {
-            return '';
-        }
-
-        $data = $this->call('album.getinfo', ['artist' => $artist, 'album' => $album]);
-
-        return self::bestImage($data['album']['image'] ?? []);
-    }
-
-    /**
      * Real artwork for a track, via its associated album. Last.fm's
      * user.getTopTracks / getWeeklyTrackChart responses mostly return a
      * generic placeholder image now (per-track art was deprecated), so this

@@ -24,6 +24,7 @@ body {
     min-height: 100vh;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     color: var(--fg);
+    background: #0b0b10;
     overflow-x: hidden;
 }
 
@@ -111,17 +112,12 @@ body {
     transition: border-color var(--transition-slow);
 }
 
-.art-group {
-    display: flex;
-    gap: 12px;
-    flex: none;
-}
-
 .art-tile {
     position: relative;
-    width: 108px;
-    height: 108px;
-    border-radius: 14px;
+    width: 140px;
+    height: 140px;
+    flex: none;
+    border-radius: 16px;
     overflow: hidden;
     background: linear-gradient(135deg, var(--accent), #222);
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
@@ -141,25 +137,10 @@ body {
     justify-content: center;
     width: 100%;
     height: 100%;
-    font-size: 2.4rem;
+    font-size: 3rem;
     font-weight: 700;
     color: #fff;
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
-}
-
-.art-label {
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    padding: 3px 8px;
-    font-size: 0.62rem;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    text-align: center;
-    color: var(--fg);
-    background: rgba(0, 0, 0, 0.55);
-    backdrop-filter: blur(4px);
 }
 
 .now-playing .info {
@@ -234,6 +215,39 @@ body {
     text-overflow: ellipsis;
 }
 
+.listen-links {
+    display: flex;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.listen-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--fg);
+    font-size: 0.78rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 150ms ease, transform 150ms ease;
+}
+
+.listen-link:hover {
+    background: rgba(255, 255, 255, 0.16);
+    transform: translateY(-1px);
+}
+
+.listen-spotify svg {
+    color: #1db954;
+}
+
+.listen-youtube svg {
+    color: #ff0000;
+}
+
 /* --- Panels --- */
 
 .panels {
@@ -253,14 +267,9 @@ body {
         text-align: left;
     }
 
-    .art-group {
-        width: 100%;
-    }
-
     .art-tile {
         width: 100%;
-        height: 160px;
-        flex: 1;
+        height: 200px;
     }
 }
 
@@ -344,10 +353,60 @@ body {
 }
 
 .track-row .count {
+    grid-column: 4;
+    grid-row: 1;
     text-align: right;
     font-size: 0.78rem;
     color: var(--fg-dim);
     min-width: 64px;
+    transition: opacity 150ms ease;
+}
+
+/* Overlaid on the same grid cell as .count, swapped in on hover so the row
+   doesn't reflow or need extra width reserved when not hovered. */
+.listen-links-hover {
+    grid-column: 4;
+    grid-row: 1;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 6px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 150ms ease;
+}
+
+.track-row:hover .count {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.track-row:hover .listen-links-hover {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.listen-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    transition: background 150ms ease;
+}
+
+.listen-icon:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.listen-icon.listen-spotify {
+    color: #1db954;
+}
+
+.listen-icon.listen-youtube {
+    color: #ff0000;
 }
 
 .track-row .bar {
