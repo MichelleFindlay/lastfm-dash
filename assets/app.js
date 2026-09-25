@@ -190,7 +190,7 @@
     // rather than raw HSL lightness is the right thing to target.
     function ensureSafeLuminance(h, s, l) {
         var MIN_LUM = 0.12;
-        var MAX_LUM = 0.25;
+        var MAX_LUM = 0.16;
 
         var rgb = hslToRgb(h, s, l);
         var lum = relativeLuminance(rgb[0], rgb[1], rgb[2]);
