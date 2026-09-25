@@ -7,10 +7,8 @@
     var lastCheckTime = Date.now();
 
     var els = {
-        trackArtImg: document.querySelector("[data-track-art-img]"),
-        albumArtImg: document.querySelector("[data-album-art-img]"),
-        trackArtFallback: document.querySelector("[data-track-art-fallback]"),
-        albumArtFallback: document.querySelector("[data-album-art-fallback]"),
+        artImg: document.querySelector("[data-art-img]"),
+        artFallback: document.querySelector("[data-art-fallback]"),
         name: document.querySelector("[data-track-name]"),
         artist: document.querySelector("[data-track-artist]"),
         album: document.querySelector("[data-track-album]"),
@@ -18,6 +16,13 @@
         updated: document.querySelector("[data-updated]"),
         bgA: document.querySelector("[data-bg-a]"),
         bgB: document.querySelector("[data-bg-b]"),
+        listenSpotify: document.querySelector("[data-listen-spotify]"),
+        listenYoutube: document.querySelector("[data-listen-youtube]"),
+        prevWrap: document.querySelector("[data-prev-track]"),
+        prevArtImg: document.querySelector("[data-prev-art-img]"),
+        prevArtFallback: document.querySelector("[data-prev-art-fallback]"),
+        prevName: document.querySelector("[data-prev-track-name]"),
+        prevArtist: document.querySelector("[data-prev-track-artist]"),
     };
 
     function setText(el, value) {
@@ -25,6 +30,24 @@
             el.textContent = value || "";
         }
     }
+
+    // Last.fm's API sometimes lists an image URL that 404s on its own CDN
+    // (seen in practice: it advertises a large size that's missing while
+    // smaller sizes of the same image work fine). Rather than add a slow
+    // server-side HEAD request per image to verify, fall back to the
+    // existing letter-placeholder UI whenever a load actually fails.
+    function fallBackToLetterOnError(imgEl, fallbackEl) {
+        if (!imgEl || !fallbackEl) {
+            return;
+        }
+        imgEl.addEventListener("error", function () {
+            imgEl.style.display = "none";
+            fallbackEl.style.display = "";
+        });
+    }
+
+    fallBackToLetterOnError(els.artImg, els.artFallback);
+    fallBackToLetterOnError(els.prevArtImg, els.prevArtFallback);
 
     function setArt(imgEl, fallbackEl, url) {
         if (!imgEl) {
@@ -63,6 +86,29 @@
         activeLayer = activeLayer === "a" ? "b" : "a";
 
         extractPalette(imageUrl);
+    }
+
+    // Once extractPalette() sets --accent via JS, it overrides the CSS
+    // default indefinitely — there was previously no path back, so a track
+    // with no art at all would keep showing whatever the last track with
+    // art left behind. Reset everything to its CSS default when that
+    // happens: fading out the background layer reveals the plain dark page
+    // background, and removing the --accent overrides (rather than
+    // hardcoding the default here too) lets them fall back to :root's
+    // declared values, still through the same 5s --color-transition every
+    // other accent change already uses.
+    function resetTheme() {
+        if (lastImage === null) {
+            return; // already at the default; nothing to reset
+        }
+        lastImage = null;
+
+        if (els.bgA) els.bgA.classList.remove("visible");
+        if (els.bgB) els.bgB.classList.remove("visible");
+
+        var root = document.documentElement.style;
+        root.removeProperty("--accent");
+        root.removeProperty("--accent-soft");
     }
 
     /**
@@ -223,6 +269,23 @@
         root.setProperty("--accent-soft", "rgba(" + r + ", " + g + ", " + b + ", 0.35)");
     }
 
+    function setListenLink(linkEl, linkData, serviceName) {
+        if (!linkEl) {
+            return;
+        }
+        if (!linkData || !linkData.url) {
+            linkEl.style.display = "none";
+            return;
+        }
+        linkEl.href = linkData.url;
+        linkEl.title = (linkData.verified ? "Listen on " : "Search on ") + serviceName;
+        var label = linkEl.querySelector(".listen-label");
+        if (label) {
+            label.textContent = linkData.verified ? "Listen" : "Search";
+        }
+        linkEl.style.display = "";
+    }
+
     function renderTrack(track) {
         if (!track || !track.name) {
             return;
@@ -233,11 +296,9 @@
         setText(els.album, track.album);
 
         var initial = (track.name || "?").charAt(0).toUpperCase();
-        if (els.trackArtFallback) els.trackArtFallback.textContent = initial;
-        if (els.albumArtFallback) els.albumArtFallback.textContent = initial;
+        if (els.artFallback) els.artFallback.textContent = initial;
 
-        setArt(els.trackArtImg, els.trackArtFallback, track.track_art || track.image);
-        setArt(els.albumArtImg, els.albumArtFallback, track.album_art || track.track_art || track.image);
+        setArt(els.artImg, els.artFallback, track.image);
 
         if (els.badge) {
             if (track.now_playing) {
@@ -251,7 +312,33 @@
 
         if (track.image) {
             updateBackground(track.image);
+        } else {
+            resetTheme();
         }
+
+        if (track.listen) {
+            setListenLink(els.listenSpotify, track.listen.spotify, "Spotify");
+            setListenLink(els.listenYoutube, track.listen.youtube, "YouTube Music");
+        }
+    }
+
+    function renderPreviousTrack(prev) {
+        if (!els.prevWrap) {
+            return;
+        }
+        if (!prev || !prev.name) {
+            els.prevWrap.style.display = "none";
+            return;
+        }
+
+        els.prevWrap.style.display = "";
+        setText(els.prevName, prev.name);
+        setText(els.prevArtist, prev.artist);
+
+        var initial = (prev.name || "?").charAt(0).toUpperCase();
+        if (els.prevArtFallback) els.prevArtFallback.textContent = initial;
+
+        setArt(els.prevArtImg, els.prevArtFallback, prev.image);
     }
 
     function renderStats(stats) {
@@ -272,6 +359,7 @@
             .then(function (data) {
                 if (data && data.ok) {
                     renderTrack(data);
+                    renderPreviousTrack(data.previous);
                     renderStats(data.stats);
                     lastCheckTime = Date.now();
                     updateElapsedLabel();
@@ -596,17 +684,27 @@
 
         tracks.forEach(function (t) {
             var li = el("li", "track-row");
+            li.setAttribute("data-artist", t.artist || "");
+            li.setAttribute("data-track", t.name || "");
             li.appendChild(el("span", "rank", String(t.rank)));
 
             var thumb = el("span", "thumb");
+            var initial = (t.name || "?").charAt(0).toUpperCase();
             if (t.art) {
                 var img = document.createElement("img");
                 img.src = t.art;
                 img.alt = "";
                 img.loading = "lazy";
+                // Last.fm's API occasionally lists an image URL that 404s on
+                // its own CDN — fall back to the letter placeholder on load
+                // failure rather than showing a broken image.
+                img.addEventListener("error", function () {
+                    img.style.display = "none";
+                    thumb.textContent = initial;
+                });
                 thumb.appendChild(img);
             } else {
-                thumb.textContent = (t.name || "?").charAt(0).toUpperCase();
+                thumb.textContent = initial;
             }
             li.appendChild(thumb);
 
@@ -623,6 +721,8 @@
             bar.appendChild(fill);
             count.appendChild(bar);
             li.appendChild(count);
+
+            li.appendChild(el("span", "listen-links-hover"));
 
             ol.appendChild(li);
         });
@@ -699,6 +799,81 @@
     document.addEventListener("keydown", function (evt) {
         if (evt.key === "Escape") {
             closeModal();
+        }
+    });
+
+    // --- Hover-triggered "listen on Spotify / YouTube Music" on track rows ---
+    // Lazy: looked up once per unique track on first hover, not for every
+    // row up front, since most of the 16+ rows across both lists will never
+    // be hovered in a given visit.
+
+    var listenLinksCache = {};
+
+    var LISTEN_ICON_SVG = {
+        spotify: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>',
+        youtube: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm0 19.104c-3.924 0-7.104-3.18-7.104-7.104S8.076 4.896 12 4.896s7.104 3.18 7.104 7.104-3.18 7.104-7.104 7.104zm0-13.332c-3.432 0-6.228 2.796-6.228 6.228S8.568 18.228 12 18.228s6.228-2.796 6.228-6.228S15.432 5.772 12 5.772zM9.684 15.54V8.46L15.816 12l-6.132 3.54z"/></svg>',
+    };
+
+    function buildHoverListenIcon(service, serviceName, linkData) {
+        var a = document.createElement("a");
+        a.className = "listen-icon listen-" + service;
+        a.href = linkData.url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.title = (linkData.verified ? "Listen on " : "Search on ") + serviceName;
+        a.innerHTML = LISTEN_ICON_SVG[service];
+        return a;
+    }
+
+    function renderHoverListenLinks(container, links) {
+        container.innerHTML = "";
+        if (links.spotify && links.spotify.url) {
+            container.appendChild(buildHoverListenIcon("spotify", "Spotify", links.spotify));
+        }
+        if (links.youtube && links.youtube.url) {
+            container.appendChild(buildHoverListenIcon("youtube", "YouTube Music", links.youtube));
+        }
+    }
+
+    function loadHoverListenLinks(row) {
+        var container = row.querySelector("[data-listen-links-hover], .listen-links-hover");
+        if (!container || container.getAttribute("data-loaded")) {
+            return;
+        }
+
+        var artist = row.getAttribute("data-artist") || "";
+        var track = row.getAttribute("data-track") || "";
+        if (!artist || !track) {
+            return;
+        }
+
+        container.setAttribute("data-loaded", "1");
+
+        var cacheKey = artist.toLowerCase() + "|" + track.toLowerCase();
+        if (listenLinksCache[cacheKey]) {
+            renderHoverListenLinks(container, listenLinksCache[cacheKey]);
+            return;
+        }
+
+        fetch("listen_links.php?artist=" + encodeURIComponent(artist) + "&track=" + encodeURIComponent(track), { cache: "no-store" })
+            .then(function (res) { return res.json(); })
+            .then(function (payload) {
+                if (payload && payload.ok) {
+                    listenLinksCache[cacheKey] = payload.links;
+                    renderHoverListenLinks(container, payload.links);
+                } else {
+                    container.removeAttribute("data-loaded");
+                }
+            })
+            .catch(function () {
+                container.removeAttribute("data-loaded");
+            });
+    }
+
+    document.addEventListener("mouseover", function (evt) {
+        var row = evt.target.closest && evt.target.closest(".track-row");
+        if (row) {
+            loadHoverListenLinks(row);
         }
     });
 })();

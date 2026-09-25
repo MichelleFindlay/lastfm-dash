@@ -9,6 +9,11 @@ album art.
 
 - **Now Playing** — live "now scrobbling" / last-played track, polled every
   few seconds, with separate track and album artwork tiles (they can differ).
+- **Quick-listen links** — Spotify and YouTube Music links on the current
+  track and on hover over any track row, so you don't have to leave the
+  dashboard to find it yourself. Work as plain search links with zero setup;
+  add free API credentials to upgrade to a verified direct link to the exact
+  track (see `config.sample.php` and `lib/ListenLinks.php`).
 - **Dynamic theming** — the page background and accent colour are extracted
   live from the current album art and eased in smoothly, with the accent
   colour clamped to a safe contrast range so text always stays readable

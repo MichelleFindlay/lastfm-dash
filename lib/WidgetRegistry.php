@@ -9,9 +9,12 @@ class WidgetRegistry
 {
     /**
      * Widget ids that take no extra query params — the set cron.php
-     * pre-warms directly. "genre" and "tracks" are excluded: they're
-     * parameterized by period (and, for tracks, panel too), so pre-warming
-     * every combination is a separate concern from "the insight widgets".
+     * pre-warms directly. "tracks" is excluded: it's parameterized by
+     * period and panel, so pre-warming every combination is a separate
+     * concern from "the insight widgets". "genre" is also parameterized by
+     * period, but cron.php pre-warms it separately below, since it's the
+     * main page's slowest cold-cache path (one artist.gettoptags call per
+     * top artist, per period).
      */
     public const SIMPLE_IDS = [
         'listening_clock',

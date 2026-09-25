@@ -180,6 +180,32 @@ class LastFm
         return $this->call('user.getrecenttracks', ['limit' => $limit, 'extended' => 1]);
     }
 
+    /**
+     * Finds the track before the current one in a getRecentTracks() list.
+     * Last.fm keeps a track marked "now playing" even after it's crossed
+     * its own scrobble threshold mid-play, so the currently-playing track
+     * often also appears as its own freshly-recorded scrobble right behind
+     * it — naively taking index 1 would show the still-playing track as
+     * "previously played". Skip any leading entries that match the current
+     * track's artist + name before picking one.
+     *
+     * @param array<int, array> $tracks Full list from getRecentTracks(), current track first.
+     */
+    public static function findPreviousTrack(array $tracks, string $currentArtist, string $currentName): ?array
+    {
+        for ($i = 1; $i < count($tracks); $i++) {
+            $candidate = $tracks[$i];
+            $artist = $candidate['artist']['#text'] ?? ($candidate['artist']['name'] ?? '');
+            $name = $candidate['name'] ?? '';
+
+            if (strcasecmp($artist, $currentArtist) !== 0 || strcasecmp($name, $currentName) !== 0) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
     public function getTopTracks(string $period, int $limit): ?array
     {
         return $this->call('user.gettoptracks', ['period' => $period, 'limit' => $limit]);
@@ -204,21 +230,6 @@ class LastFm
     }
 
     /**
-     * The album's own artwork, fetched independently of the track's
-     * artwork so the two can be shown side by side even when they differ.
-     */
-    public function getAlbumArt(string $artist, string $album): string
-    {
-        if ($artist === '' || $album === '') {
-            return '';
-        }
-
-        $data = $this->call('album.getinfo', ['artist' => $artist, 'album' => $album]);
-
-        return self::bestImage($data['album']['image'] ?? []);
-    }
-
-    /**
      * Real artwork for a track, via its associated album. Last.fm's
      * user.getTopTracks / getWeeklyTrackChart responses mostly return a
      * generic placeholder image now (per-track art was deprecated), so this
@@ -239,20 +250,21 @@ class LastFm
 
     /**
      * UI period keys (used by the genre breakdown's period picker) mapped
-     * to Last.fm's own period values. Last.fm has no calendar-year or
-     * single-day period, so "this_year" uses Last.fm's rolling 12-month
-     * window (its closest built-in equivalent) and "today" is computed
-     * separately from actual today's scrobbles.
+     * to Last.fm's own period values. Last.fm has no calendar-year, -month,
+     * -week or single-day period, so "this_year"/"this_month"/"this_week"
+     * use Last.fm's own rolling windows (its closest built-in equivalent)
+     * and "today" is computed separately from actual today's scrobbles.
      */
     private const UI_PERIOD_MAP = [
         'all_time'   => 'overall',
         'this_year'  => '12month',
         'this_month' => '1month',
+        'this_week'  => '7day',
     ];
 
     /**
      * Validates a UI period key (from config or a request param), falling
-     * back to $default if it's not one of the four the period pickers
+     * back to $default if it's not one of the five the period pickers
      * support. Single source of truth for that set of valid values.
      */
     public static function validUiPeriod(string $value, string $default = 'all_time'): string
@@ -281,7 +293,8 @@ class LastFm
 
     /**
      * Genre breakdown for a UI period key ("all_time" / "this_year" /
-     * "this_month" / "today"), used by the interactive period picker.
+     * "this_month" / "this_week" / "today"), used by the interactive period
+     * picker.
      */
     public function getGenresForUiPeriod(string $uiPeriod, int $artistLimit, int $genreLimit, DateTimeZone $tz): array
     {
@@ -317,8 +330,9 @@ class LastFm
 
     /**
      * Top tracks for a UI period key ("all_time" / "this_year" /
-     * "this_month" / "today"), used by the Favourite Tracks and Trending
-     * period pickers. Returns a consistent shape regardless of source:
+     * "this_month" / "this_week" / "today"), used by the Favourite Tracks
+     * and Trending period pickers. Returns a consistent shape regardless of
+     * source:
      * {name, artist: {name}, playcount, image}.
      */
     public function getTracksForUiPeriod(string $uiPeriod, int $limit, DateTimeZone $tz): array

@@ -1,11 +1,12 @@
 <?php
 
 /**
- * Pre-warms the insight-widget and lifetime-stats caches on a schedule, so
- * visitors always get an already-cached response instead of triggering a
- * slow cold computation (some widgets sample deep into your library and can
- * take a minute or more on a cache miss — see lib/Widgets.php) on their own
- * page load.
+ * Pre-warms the insight-widget, Genre Breakdown, and lifetime-stats caches
+ * on a schedule, so visitors always get an already-cached response instead
+ * of triggering a slow cold computation on their own page load (some
+ * widgets sample deep into your library and can take a minute or more on a
+ * cache miss — see lib/Widgets.php — and Genre Breakdown makes one
+ * artist.gettoptags call per top artist, per period).
  *
  * Run this every 15 minutes, matching the cache TTL used in widgets.php and
  * LastFm::getInfo(). Two ways to schedule it (crontab syntax: minute 0,15,
@@ -82,6 +83,22 @@ foreach (WidgetRegistry::SIMPLE_IDS as $id) {
         $refreshed[] = $id;
     } catch (Throwable $e) {
         $failed[] = $id;
+    }
+}
+
+// Genre Breakdown — pre-warm every period the picker offers. The handler
+// reads its period from $_GET (matching how widgets.php's on-demand
+// requests are shaped), so it's faked here for each period in turn; the
+// cache key WidgetCache derives from $params matches what widgets.php will
+// look up on a real request with the same ?id=genre&period=... .
+foreach (['all_time', 'this_year', 'this_month', 'this_week', 'today'] as $period) {
+    $params = ['id' => 'genre', 'period' => $period];
+    try {
+        $_GET = $params;
+        WidgetCache::remember('genre', $params, 900, $handlers['genre']);
+        $refreshed[] = 'genre_' . $period;
+    } catch (Throwable $e) {
+        $failed[] = 'genre_' . $period;
     }
 }
 

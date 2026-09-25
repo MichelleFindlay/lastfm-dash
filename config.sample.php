@@ -48,9 +48,10 @@ return [
 
     // Which timeframe each period-picker panel shows on page load. Visitors
     // can still switch it themselves — this only sets the initial view.
-    // Valid values: all_time | this_year | this_month | today
-    // ("this_year" is Last.fm's rolling 12-month window, not calendar year;
-    // "today" is computed from your actual same-day scrobbles.)
+    // Valid values: all_time | this_year | this_month | this_week | today
+    // ("this_year"/"this_month"/"this_week" are Last.fm's own rolling
+    // windows, not calendar periods; "today" is computed from your actual
+    // same-day scrobbles.)
     'favourites_default_period' => 'all_time',
     'trending_default_period'   => 'today',
     'genre_default_period'      => 'all_time',
@@ -64,13 +65,19 @@ return [
     'cron_enabled' => false,
     'cron_secret'  => '',
 
-    // Displayed in the footer, and compared against the latest GitHub
-    // release below to advise you when it's time to update
-    'version' => '1.0.0',
+    // Quick-listen links (Spotify / YouTube Music) on the current track and
+    // on hover over any track row. Work out of the box as plain search
+    // links with zero setup; adding credentials upgrades them to a
+    // verified direct link to the exact track. See lib/ListenLinks.php for
+    // where to get each one (both are free).
+    'spotify_client_id'     => '',
+    'spotify_client_secret' => '',
+    'youtube_api_key'       => '',
 
-    // Footer "update available" check: compares the version above against
-    // the latest published release on this GitHub repo. Set github_repo to
-    // '' to disable the check (and hide the GitHub link) entirely.
+    // Footer "update available" check: compares the app's own version (the
+    // VERSION file at the project root — not this config) against the
+    // latest published release on this GitHub repo. Set github_repo to ''
+    // to disable the check (and hide the GitHub link) entirely.
     'github_repo'      => 'MichelleFindlay/lastfm-dash',
     'update_check_ttl' => 3600,
 ];
