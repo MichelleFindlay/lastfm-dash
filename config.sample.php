@@ -48,9 +48,10 @@ return [
 
     // Which timeframe each period-picker panel shows on page load. Visitors
     // can still switch it themselves — this only sets the initial view.
-    // Valid values: all_time | this_year | this_month | today
-    // ("this_year" is Last.fm's rolling 12-month window, not calendar year;
-    // "today" is computed from your actual same-day scrobbles.)
+    // Valid values: all_time | this_year | this_month | this_week | today
+    // ("this_year"/"this_month"/"this_week" are Last.fm's own rolling
+    // windows, not calendar periods; "today" is computed from your actual
+    // same-day scrobbles.)
     'favourites_default_period' => 'all_time',
     'trending_default_period'   => 'today',
     'genre_default_period'      => 'all_time',

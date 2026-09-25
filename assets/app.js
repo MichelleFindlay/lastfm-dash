@@ -18,6 +18,11 @@
         bgB: document.querySelector("[data-bg-b]"),
         listenSpotify: document.querySelector("[data-listen-spotify]"),
         listenYoutube: document.querySelector("[data-listen-youtube]"),
+        prevWrap: document.querySelector("[data-prev-track]"),
+        prevArtImg: document.querySelector("[data-prev-art-img]"),
+        prevArtFallback: document.querySelector("[data-prev-art-fallback]"),
+        prevName: document.querySelector("[data-prev-track-name]"),
+        prevArtist: document.querySelector("[data-prev-track-artist]"),
     };
 
     function setText(el, value) {
@@ -42,6 +47,7 @@
     }
 
     fallBackToLetterOnError(els.artImg, els.artFallback);
+    fallBackToLetterOnError(els.prevArtImg, els.prevArtFallback);
 
     function setArt(imgEl, fallbackEl, url) {
         if (!imgEl) {
@@ -316,6 +322,25 @@
         }
     }
 
+    function renderPreviousTrack(prev) {
+        if (!els.prevWrap) {
+            return;
+        }
+        if (!prev || !prev.name) {
+            els.prevWrap.style.display = "none";
+            return;
+        }
+
+        els.prevWrap.style.display = "";
+        setText(els.prevName, prev.name);
+        setText(els.prevArtist, prev.artist);
+
+        var initial = (prev.name || "?").charAt(0).toUpperCase();
+        if (els.prevArtFallback) els.prevArtFallback.textContent = initial;
+
+        setArt(els.prevArtImg, els.prevArtFallback, prev.image);
+    }
+
     function renderStats(stats) {
         if (!stats) {
             return;
@@ -334,6 +359,7 @@
             .then(function (data) {
                 if (data && data.ok) {
                     renderTrack(data);
+                    renderPreviousTrack(data.previous);
                     renderStats(data.stats);
                     lastCheckTime = Date.now();
                     updateElapsedLabel();

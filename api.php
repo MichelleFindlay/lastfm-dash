@@ -24,9 +24,10 @@ $config = require $configFile;
 $pollSeconds = max(1, (int) ($config['poll_interval_ms'] ?? 10000) / 1000);
 $lastfm = new LastFm($config['api_key'], $config['username'], max(3, $pollSeconds - 2));
 $listenLinks = new ListenLinks($config, __DIR__);
-$recent = $lastfm->getRecentTracks(1);
+$recent = $lastfm->getRecentTracks(4);
+$tracks = $recent['recenttracks']['track'] ?? [];
 
-$track = $recent['recenttracks']['track'][0] ?? null;
+$track = $tracks[0] ?? null;
 
 if (!$track) {
     echo json_encode(['ok' => false]);
@@ -37,6 +38,16 @@ $isNowPlaying = ($track['@attr']['nowplaying'] ?? '') === 'true';
 $artist = $track['artist']['#text'] ?? ($track['artist']['name'] ?? '');
 $album = $track['album']['#text'] ?? '';
 $art = LastFm::bestImage($track['image'] ?? []);
+$previousTrackRaw = LastFm::findPreviousTrack($tracks, $artist, $track['name'] ?? '');
+
+$previousTrack = null;
+if ($previousTrackRaw) {
+    $previousTrack = [
+        'name'   => $previousTrackRaw['name'] ?? '',
+        'artist' => $previousTrackRaw['artist']['#text'] ?? ($previousTrackRaw['artist']['name'] ?? ''),
+        'image'  => LastFm::bestImage($previousTrackRaw['image'] ?? []),
+    ];
+}
 
 echo json_encode([
     'ok'          => true,
@@ -49,4 +60,5 @@ echo json_encode([
     'date'        => $track['date']['#text'] ?? null,
     'stats'       => LastFm::formatLifetimeStats($lastfm->getInfo()),
     'listen'      => $listenLinks->forTrack($artist, $track['name'] ?? ''),
+    'previous'    => $previousTrack,
 ]);

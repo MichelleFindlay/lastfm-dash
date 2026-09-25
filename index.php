@@ -87,7 +87,7 @@ $config += [
     'obscure_artist_sample' => 200,
 
     // Which timeframe each period-picker panel shows on page load:
-    // all_time | this_year | this_month | today
+    // all_time | this_year | this_month | this_week | today
     'favourites_default_period' => 'all_time',
     'trending_default_period'   => 'today',
     'genre_default_period'      => 'all_time',
@@ -123,8 +123,9 @@ if (!$needsSetup) {
     $lastfm = new LastFm($config['api_key'], $config['username'], (int) $config['cache_ttl']);
     $listenLinks = new ListenLinks($config, __DIR__);
 
-    $recent = $lastfm->getRecentTracks(1);
-    $recentTrack = $recent['recenttracks']['track'][0] ?? null;
+    $recent = $lastfm->getRecentTracks(4);
+    $recentTracks = $recent['recenttracks']['track'] ?? [];
+    $recentTrack = $recentTracks[0] ?? null;
 
     if ($recentTrack) {
         $artist = $recentTrack['artist']['#text'] ?? ($recentTrack['artist']['name'] ?? '');
@@ -142,6 +143,19 @@ if (!$needsSetup) {
         ];
     } else {
         $apiError = true;
+    }
+
+    $previousTrackRaw = $recentTrack
+        ? LastFm::findPreviousTrack($recentTracks, $artist, $recentTrack['name'] ?? '')
+        : null;
+
+    $previousTrack = null;
+    if ($previousTrackRaw) {
+        $previousTrack = [
+            'name'   => $previousTrackRaw['name'] ?? '',
+            'artist' => $previousTrackRaw['artist']['#text'] ?? ($previousTrackRaw['artist']['name'] ?? ''),
+            'image'  => LastFm::bestImage($previousTrackRaw['image'] ?? []),
+        ];
     }
 
     $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
@@ -188,6 +202,7 @@ $uiPeriodLabels = [
     'all_time'   => 'All Time',
     'this_year'  => 'This Year',
     'this_month' => 'This Month',
+    'this_week'  => 'This Week',
     'today'      => 'Today',
 ];
 
@@ -276,6 +291,20 @@ if (!empty($config['github_repo'])) {
                 </a>
             </div>
         </div>
+        <?php $prevInitial = strtoupper(substr($previousTrack['name'] ?? '?', 0, 1)); ?>
+        <div class="prev-track" data-prev-track style="<?= $previousTrack ? '' : 'display:none' ?>">
+            <div class="prev-track-thumb">
+                <span class="prev-track-thumb-fallback" data-prev-art-fallback
+                      style="<?= empty($previousTrack['image']) ? '' : 'display:none' ?>"><?= e($prevInitial) ?></span>
+                <img data-prev-art-img src="<?= e($previousTrack['image'] ?? '') ?>" alt=""
+                     style="<?= empty($previousTrack['image']) ? 'display:none' : '' ?>">
+            </div>
+            <div class="prev-track-info">
+                <div class="prev-track-label">Previously played</div>
+                <div class="prev-track-name" data-prev-track-name><?= e($previousTrack['name'] ?? '') ?></div>
+                <div class="prev-track-artist" data-prev-track-artist><?= e($previousTrack['artist'] ?? '') ?></div>
+            </div>
+        </div>
     </section>
 
     <?php
@@ -284,7 +313,12 @@ if (!empty($config['github_repo'])) {
         echo '<div class="period-picker" data-period-group-wrap="' . e($group) . '">';
         foreach ($labels as $code => $label) {
             $activeClass = $code === $active ? ' active' : '';
-            $title = $code === 'this_year' ? ' title="Last.fm\'s rolling 12-month window, not calendar year"' : '';
+            $title = '';
+            if ($code === 'this_year') {
+                $title = ' title="Last.fm\'s rolling 12-month window, not calendar year"';
+            } elseif ($code === 'this_week') {
+                $title = ' title="Last.fm\'s rolling 7-day window, not calendar week"';
+            }
             echo '<button type="button" class="period-btn' . $activeClass . '" data-period-group="' . e($group) . '" data-period="' . e($code) . '"' . $title . '>' . e($label) . '</button>';
         }
         echo '</div>';

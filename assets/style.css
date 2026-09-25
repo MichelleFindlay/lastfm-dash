@@ -248,6 +248,74 @@ body {
     color: #ff0000;
 }
 
+.prev-track {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
+    padding-left: 24px;
+    border-left: 1px solid var(--card-border);
+    flex: none;
+    max-width: 220px;
+}
+
+.prev-track-thumb {
+    position: relative;
+    width: 56px;
+    height: 56px;
+    flex: none;
+    border-radius: 10px;
+    overflow: hidden;
+    background: linear-gradient(135deg, var(--accent-soft), rgba(255, 255, 255, 0.08));
+    transition: background var(--color-transition);
+}
+
+.prev-track-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.prev-track-thumb-fallback {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--fg);
+}
+
+.prev-track-info {
+    min-width: 0;
+}
+
+.prev-track-label {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+    margin-bottom: 4px;
+}
+
+.prev-track-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.prev-track-artist {
+    font-size: 0.78rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* --- Panels --- */
 
 .panels {
@@ -270,6 +338,16 @@ body {
     .art-tile {
         width: 100%;
         height: 200px;
+    }
+
+    .prev-track {
+        margin-left: 0;
+        padding-left: 0;
+        padding-top: 16px;
+        border-left: none;
+        border-top: 1px solid var(--card-border);
+        width: 100%;
+        max-width: none;
     }
 }
 
