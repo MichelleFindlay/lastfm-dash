@@ -45,6 +45,12 @@ $config += [
     'favourites_default_period' => 'all_time',
     'trending_default_period'   => 'today',
     'genre_default_period'      => 'all_time',
+
+    // Set to true once you've scheduled cron.php to run every 15 minutes
+    // (see cron.php for setup) — shown as a small footer note so it's
+    // visible whether background cache warming is actually in place.
+    'cron_enabled' => false,
+    'cron_secret'  => '',
 ];
 
 $needsSetup = $configMissing
@@ -373,6 +379,11 @@ if (!empty($config['github_repo'])) {
                 — you're on v<?= e($versionInfo['installed']) ?>
             <?php endif; ?>
         </div>
+        <?php if (!empty($config['cron_enabled'])): ?>
+            <div class="cron-line" title="cron.php is scheduled to refresh widget and stats caches every 15 minutes">
+                &#8635; Background refresh active
+            </div>
+        <?php endif; ?>
     </footer>
 </div>
 

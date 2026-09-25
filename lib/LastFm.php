@@ -83,11 +83,15 @@ class LastFm
 
     /**
      * Lifetime account stats: total scrobbles, unique artist/album/track
-     * counts, and registration date.
+     * counts, and registration date. Cached for 15 minutes regardless of
+     * the instance's general cache_ttl, so it's consistent everywhere it's
+     * read from (the main page, the now-playing poll, cron.php) — this is
+     * the number the Lifetime Stats panel shows, so it shouldn't refresh on
+     * a different schedule depending on who happened to ask first.
      */
     public function getInfo(): ?array
     {
-        $data = $this->call('user.getinfo', []);
+        $data = $this->call('user.getinfo', [], 900);
 
         return $data['user'] ?? null;
     }

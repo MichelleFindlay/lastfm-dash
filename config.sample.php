@@ -55,6 +55,15 @@ return [
     'trending_default_period'   => 'today',
     'genre_default_period'      => 'all_time',
 
+    // Widget and Lifetime Stats data is cached for 15 minutes. cron.php can
+    // pre-warm that cache on a schedule so visitors never trigger a slow
+    // cold computation themselves — see cron.php for setup instructions.
+    // Set cron_enabled to true once you've actually scheduled it (shown as
+    // a small footer note); cron_secret, if set, is required as a ?token=
+    // query param for HTTP-triggered runs of cron.php (not for CLI runs).
+    'cron_enabled' => false,
+    'cron_secret'  => '',
+
     // Displayed in the footer, and compared against the latest GitHub
     // release below to advise you when it's time to update
     'version' => '1.0.0',

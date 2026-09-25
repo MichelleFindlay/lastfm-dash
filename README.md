@@ -16,7 +16,7 @@ album art.
 - **Favourite Tracks**, **Trending**, and **Genre Breakdown** — each with an
   All Time / This Year / This Month / Today period picker, switched via AJAX.
 - **Lifetime Stats** — total scrobbles, unique artists/albums/tracks, average
-  scrobbles per day, member-since date. Ticks up live as new scrobbles land.
+  scrobbles per day, member-since date. Refreshes every 15 minutes.
 - **Insight widgets** — click-through popups built from real Last.fm (and,
   where Last.fm has no data of its own, honestly-labelled derived) data:
   - **Listening Clock** — a 24-hour radial chart of when you actually listen
@@ -70,6 +70,40 @@ The `curl` extension is used when available, with an automatic
 3. On shared/Apache hosting, `.htaccess` and `.user.ini` are included to
    toggle PHP error display between debug and production — see the comments
    in each file.
+
+## Background cache warming (optional)
+
+Widget and Lifetime Stats data is cached for 15 minutes. Left alone, that
+just means whoever loads the page after the cache expires triggers the
+refresh themselves — for most of the insight widgets that's fast (data is
+served from long-lived sub-caches), but a handful (Genre Breakdown, BPM
+Average, Obscurity Index, Before They Were Famous) sample deep enough into
+your library that a fully cold run can take a minute or more.
+
+`cron.php` pre-warms all of that ahead of time, so visitors always land on
+an already-cached page. Schedule it to run every 15 minutes:
+
+```sh
+# Real system cron (preferred if you have shell access — no execution-time
+# limit imposed by a web server or reverse proxy to worry about):
+0,15,30,45 * * * * php /full/path/to/lastfm-dash/cron.php >/dev/null 2>&1
+```
+
+If you're on shared hosting without shell access, most control panels offer
+a URL-based "cron job" feature instead:
+
+```sh
+0,15,30,45 * * * * curl -s "https://yourdomain.com/path/cron.php?token=YOUR_CRON_SECRET" >/dev/null
+```
+
+Note that a URL-triggered run is at the mercy of your web server's own
+request timeout, which a very first (fully cold) run can exceed — real
+system cron doesn't have that ceiling. Once you've scheduled either form,
+set `'cron_enabled' => true` in `config.php` so the dashboard shows a small
+footer note confirming background refresh is active. If you set
+`'cron_secret'`, it's required as a `?token=` query param for HTTP-triggered
+runs (CLI runs are always allowed) — worth setting if this URL is easily
+guessable and you'd rather not have random hits trigger an expensive run.
 
 ## License
 
