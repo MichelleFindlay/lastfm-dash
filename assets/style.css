@@ -545,12 +545,16 @@ body {
 
 .version-gh-link {
     display: inline-flex;
+    align-items: center;
+    gap: 6px;
     color: var(--fg-dim);
+    text-decoration: none;
     transition: color 150ms ease;
 }
 
 .version-gh-link:hover {
     color: var(--fg);
+    text-decoration: underline;
 }
 
 .version-muted {
