@@ -478,6 +478,13 @@ body {
     background: rgba(255, 255, 255, 0.04);
 }
 
+.stat-icon {
+    display: block;
+    margin: 0 auto 6px;
+    color: var(--accent);
+    transition: color var(--color-transition);
+}
+
 .stat-value {
     font-size: 1.6rem;
     font-weight: 700;
@@ -616,6 +623,12 @@ body {
 .widget-card:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+}
+
+.widget-card-icon {
+    color: var(--accent);
+    margin-bottom: 2px;
+    transition: color var(--color-transition);
 }
 
 .widget-card-title {

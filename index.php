@@ -29,6 +29,39 @@ function appVersion(): string
     return is_file($versionFile) ? trim((string) file_get_contents($versionFile)) : '0.0.0';
 }
 
+/**
+ * Inner markup (no wrapping <svg>) for a small set of Lucide icons
+ * (ISC-licensed, ~ lucide.dev), used to give each widget card and lifetime
+ * stat a quick visual identifier. Kept as plain strings rather than fetched
+ * at request time so the page has no runtime dependency on an icon CDN.
+ */
+const ICONS = [
+    'clock'         => '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+    'activity'      => '<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/>',
+    'route'         => '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
+    'tent'          => '<path d="M3.5 21 14 3"/><path d="M20.5 21 10 3"/><path d="M15.5 21 12 15l-3.5 6"/><path d="M2 21h20"/>',
+    'cloud-sun'     => '<path d="M12 2v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="M20 12h2"/><path d="m19.07 4.93-1.41 1.41"/><path d="M15.947 12.65a4 4 0 0 0-5.925-4.128"/><path d="M13 22H7a5 5 0 1 1 4.9-6H13a3 3 0 0 1 0 6Z"/>',
+    'heart-pulse'   => '<path d="M2 9.5a5.5 5.5 0 0 1 9.591-3.676.56.56 0 0 0 .818 0A5.49 5.49 0 0 1 22 9.5c0 2.29-1.5 4-3 5.5l-5.492 5.313a2 2 0 0 1-3 .019L5 15c-1.5-1.5-3-3.2-3-5.5"/><path d="M3.22 13H9.5l.5-1 2 4.5 2-7 1.5 3.5h5.27"/>',
+    'sprout'        => '<path d="M14 9.536V7a4 4 0 0 1 4-4h1.5a.5.5 0 0 1 .5.5V5a4 4 0 0 1-4 4 4 4 0 0 0-4 4c0 2 1 3 1 5a5 5 0 0 1-1 3"/><path d="M4 9a5 5 0 0 1 8 4 5 5 0 0 1-8-4"/><path d="M5 21h14"/>',
+    'telescope'     => '<path d="m10.065 12.493-6.18 1.318a.934.934 0 0 1-1.108-.702l-.537-2.15a1.07 1.07 0 0 1 .691-1.265l13.504-4.44"/><path d="m13.56 11.747 4.332-.924"/><path d="m16 21-3.105-6.21"/><path d="M16.485 5.94a2 2 0 0 1 1.455-2.425l1.09-.272a1 1 0 0 1 1.212.727l1.515 6.06a1 1 0 0 1-.727 1.213l-1.09.272a2 2 0 0 1-2.425-1.455z"/><path d="m6.158 8.633 1.114 4.456"/><path d="m8 21 3.105-6.21"/><circle cx="12" cy="13" r="2"/>',
+    'disc-3'        => '<circle cx="12" cy="12" r="10"/><path d="M6 12c0-1.7.7-3.2 1.8-4.2"/><circle cx="12" cy="12" r="2"/><path d="M18 12c0 1.7-.7 3.2-1.8 4.2"/>',
+    'trending-up'   => '<path d="M16 7h6v6"/><path d="m22 7-8.5 8.5-5-5L2 17"/>',
+    'mic-2'         => '<path d="m11 7.601-5.994 8.19a1 1 0 0 0 .1 1.298l.817.818a1 1 0 0 0 1.314.087L15.09 12"/><path d="M16.5 21.174C15.5 20.5 14.372 20 13 20c-2.058 0-3.928 2.356-6 2-2.072-.356-2.775-3.369-1.5-4.5"/><circle cx="16" cy="7" r="5"/>',
+    'disc'          => '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="2"/>',
+    'music'         => '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
+    'calendar-days' => '<path d="M8 2v3"/><path d="M16 2v3"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M8 13h.01"/><path d="M12 13h.01"/><path d="M16 13h.01"/><path d="M8 17h.01"/><path d="M12 17h.01"/><path d="M16 17h.01"/>',
+];
+
+function renderIcon(string $name, string $class): string
+{
+    if (!isset(ICONS[$name])) {
+        return '';
+    }
+
+    return '<svg class="' . e($class) . '" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" '
+        . 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' . ICONS[$name] . '</svg>';
+}
+
 $configFile = __DIR__ . '/config.php';
 $configMissing = !is_file($configFile);
 $config = $configMissing ? [] : require $configFile;
@@ -121,25 +154,25 @@ if (!$needsSetup) {
     $statsMap = LastFm::formatLifetimeStats($lastfm->getInfo());
     if ($statsMap) {
         $lifetimeStats = [
-            ['key' => 'scrobbles', 'label' => 'Scrobbles', 'value' => $statsMap['scrobbles']],
-            ['key' => 'avg_day', 'label' => 'Avg / Day', 'value' => $statsMap['avg_day']],
-            ['key' => 'artists', 'label' => 'Artists', 'value' => $statsMap['artists']],
-            ['key' => 'albums', 'label' => 'Albums', 'value' => $statsMap['albums']],
-            ['key' => 'tracks', 'label' => 'Tracks', 'value' => $statsMap['tracks']],
-            ['key' => 'member_since', 'label' => 'Member Since', 'value' => $statsMap['member_since']],
+            ['key' => 'scrobbles', 'icon' => 'disc-3', 'label' => 'Scrobbles', 'value' => $statsMap['scrobbles']],
+            ['key' => 'avg_day', 'icon' => 'trending-up', 'label' => 'Avg / Day', 'value' => $statsMap['avg_day']],
+            ['key' => 'artists', 'icon' => 'mic-2', 'label' => 'Artists', 'value' => $statsMap['artists']],
+            ['key' => 'albums', 'icon' => 'disc', 'label' => 'Albums', 'value' => $statsMap['albums']],
+            ['key' => 'tracks', 'icon' => 'music', 'label' => 'Tracks', 'value' => $statsMap['tracks']],
+            ['key' => 'member_since', 'icon' => 'calendar-days', 'label' => 'Member Since', 'value' => $statsMap['member_since']],
         ];
     }
 }
 
 $widgetDefs = [
-    ['id' => 'listening_clock', 'title' => 'Listening Clock', 'teaser' => 'When you actually listen, mapped across 24 hours'],
-    ['id' => 'energy_curve', 'title' => 'Energy Curve', 'teaser' => 'How your listening activity rises and falls through the week'],
-    ['id' => 'distance', 'title' => 'Distance Listened', 'teaser' => 'Your total minutes, converted into something absurd'],
-    ['id' => 'festival', 'title' => 'If Your Year Were a Festival', 'teaser' => 'Your top artists, billed as a festival lineup'],
-    ['id' => 'mood', 'title' => 'Mood Weather', 'teaser' => "This month's emotional forecast"],
-    ['id' => 'bpm', 'title' => 'BPM Average', 'teaser' => 'Your heart rate, if music were a pulse'],
-    ['id' => 'before_famous', 'title' => 'Before They Were Famous', 'teaser' => "Your favourites Last.fm listeners haven't caught onto yet"],
-    ['id' => 'obscurity', 'title' => 'Obscurity Index', 'teaser' => 'How mainstream your top artists really are, by the numbers'],
+    ['id' => 'listening_clock', 'icon' => 'clock', 'title' => 'Listening Clock', 'teaser' => 'When you actually listen, mapped across 24 hours'],
+    ['id' => 'energy_curve', 'icon' => 'activity', 'title' => 'Energy Curve', 'teaser' => 'How your listening activity rises and falls through the week'],
+    ['id' => 'distance', 'icon' => 'route', 'title' => 'Distance Listened', 'teaser' => 'Your total minutes, converted into something absurd'],
+    ['id' => 'festival', 'icon' => 'tent', 'title' => 'If Your Year Were a Festival', 'teaser' => 'Your top artists, billed as a festival lineup'],
+    ['id' => 'mood', 'icon' => 'cloud-sun', 'title' => 'Mood Weather', 'teaser' => "This month's emotional forecast"],
+    ['id' => 'bpm', 'icon' => 'heart-pulse', 'title' => 'BPM Average', 'teaser' => 'Your heart rate, if music were a pulse'],
+    ['id' => 'before_famous', 'icon' => 'sprout', 'title' => 'Before They Were Famous', 'teaser' => "Your favourites Last.fm listeners haven't caught onto yet"],
+    ['id' => 'obscurity', 'icon' => 'telescope', 'title' => 'Obscurity Index', 'teaser' => 'How mainstream your top artists really are, by the numbers'],
 ];
 
 $uiPeriodLabels = [
@@ -334,6 +367,7 @@ if (!empty($config['github_repo'])) {
         <div class="widget-grid">
             <?php foreach ($widgetDefs as $w): ?>
                 <button type="button" class="widget-card" data-widget-id="<?= e($w['id']) ?>">
+                    <?= renderIcon($w['icon'], 'widget-card-icon') ?>
                     <span class="widget-card-title"><?= e($w['title']) ?></span>
                     <span class="widget-card-teaser"><?= e($w['teaser']) ?></span>
                 </button>
@@ -356,6 +390,7 @@ if (!empty($config['github_repo'])) {
             <div class="stats-row">
                 <?php foreach ($lifetimeStats as $stat): ?>
                     <div class="stat-item">
+                        <?= renderIcon($stat['icon'], 'stat-icon') ?>
                         <div class="stat-value" data-stat="<?= e($stat['key']) ?>"><?= e($stat['value']) ?></div>
                         <div class="stat-label"><?= e($stat['label']) ?></div>
                     </div>
@@ -381,10 +416,12 @@ if (!empty($config['github_repo'])) {
                     <svg class="github-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                         <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"></path>
                     </svg>
-                    <span><?= e($config['github_repo']) ?></span>
+                    lastfm-dash
                 </a>
+            <?php else: ?>
+                lastfm-dash
             <?php endif; ?>
-            <?= e('lastfm-dash v' . appVersion()) ?>
+            v<?= e(appVersion()) ?>
             <?php if (empty($config['github_repo'])): ?>
                 &middot; <span class="version-muted">update check disabled</span>
             <?php elseif ($versionInfo['error']): ?>
