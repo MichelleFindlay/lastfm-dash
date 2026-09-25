@@ -35,16 +35,21 @@ class Widgets
     }
 
     /**
-     * Unix timestamps for a sample of recent scrobbles, used to derive
-     * listening-time patterns. Paginates user.getRecentTracks. Cached for a
-     * day since the shape of your listening habits doesn't shift hourly.
+     * Unix timestamps for your entire scrobble history, used to derive
+     * listening-time patterns. Paginates user.getRecentTracks until Last.fm
+     * reports no pages left (each page is a single cheap call with no
+     * per-item lookup, so unlike the artist-based widgets below, fetching
+     * everything is actually practical here). scrobble_sample_pages is a
+     * safety ceiling, not a target — it only kicks in for accounts with an
+     * enormous history. Cached for a day since listening patterns don't
+     * shift hour to hour.
      */
     private function getScrobbleTimestamps(): array
     {
-        $pages = max(1, (int) ($this->config['scrobble_sample_pages'] ?? 5));
+        $maxPages = max(1, (int) ($this->config['scrobble_sample_pages'] ?? 200));
         $timestamps = [];
 
-        for ($page = 1; $page <= $pages; $page++) {
+        for ($page = 1; $page <= $maxPages; $page++) {
             $data = $this->lastfm->call('user.getrecenttracks', ['limit' => 200, 'page' => $page], 86400);
             $tracks = $data['recenttracks']['track'] ?? [];
 
@@ -61,6 +66,11 @@ class Widgets
                 if ($uts !== null) {
                     $timestamps[] = (int) $uts;
                 }
+            }
+
+            $totalPages = (int) ($data['recenttracks']['@attr']['totalPages'] ?? 1);
+            if ($page >= $totalPages) {
+                break;
             }
         }
 

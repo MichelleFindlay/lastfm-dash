@@ -29,19 +29,31 @@ return [
     // Recent tracks panel (shown when nothing is currently playing)
     'recent_limit' => 5,
 
-    // Genre breakdown: how many top artists to sample tags from, and how
+    // Genre breakdown: how many top artists to sample tags from (each one
+    // costs an extra Last.fm API call, cached a week — this is a real
+    // ceiling on cost, not just a display limit, so raise it gradually if
+    // your host can tolerate a slower first (cold-cache) load), and how
     // many genres to show before lumping the rest into "Other"
-    'genre_artist_limit' => 20,
+    'genre_artist_limit' => 200,
     'genre_limit'        => 8,
 
     // Insight widgets (Listening Clock, Energy Curve, Festival Poster, Mood
     // Weather, etc. — the clickable cards below Genre Breakdown)
     'avg_track_minutes'     => 3.5,   // used to estimate total listening time (Last.fm doesn't record real durations)
-    'scrobble_sample_pages' => 5,     // pages of 200 recent scrobbles sampled for time-of-day/day-of-week patterns
-    'festival_artist_limit' => 12,    // artists included in the festival poster lineup
+    'scrobble_sample_pages' => 200,   // safety ceiling on pages of 200 scrobbles fetched for Listening Clock/Energy Curve — pagination auto-stops once it reaches the end of your real history, so this only limits truly enormous accounts
+    'festival_artist_limit' => 20,    // artists included in the festival poster lineup
     'timezone'              => '',    // IANA tz e.g. 'Europe/London' — leave blank to use the server's default
-    'bpm_track_limit'       => 15,    // top tracks sampled for BPM lookup (via Deezer's free API — Last.fm has no tempo data)
-    'obscure_artist_sample' => 25,    // top artists sampled for "Before They Were Famous" listener-count ranking
+    'bpm_track_limit'       => 50,    // top tracks sampled for BPM lookup (2 Deezer calls each — Last.fm has no tempo data)
+    'obscure_artist_sample' => 200,   // top artists sampled for "Before They Were Famous" / Obscurity Index (each costs an extra Last.fm call, cached a week)
+
+    // Which timeframe each period-picker panel shows on page load. Visitors
+    // can still switch it themselves — this only sets the initial view.
+    // Valid values: all_time | this_year | this_month | today
+    // ("this_year" is Last.fm's rolling 12-month window, not calendar year;
+    // "today" is computed from your actual same-day scrobbles.)
+    'favourites_default_period' => 'all_time',
+    'trending_default_period'   => 'today',
+    'genre_default_period'      => 'all_time',
 
     // Displayed in the footer, and compared against the latest GitHub
     // release below to advise you when it's time to update

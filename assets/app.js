@@ -391,10 +391,13 @@
 
     function renderListeningClock(data) {
         var max = Math.max.apply(null, data.hours);
-        var cx = 110, cy = 110, rMax = 90, rMin = 22;
+        // Labels sit at rMax + 18 from center, so the viewBox needs enough
+        // margin beyond that for the "0:00"-style text to not get clipped
+        // at the edge — it was previously sized with almost none.
+        var cx = 130, cy = 130, rMax = 90, rMin = 22;
         var svgNS = "http://www.w3.org/2000/svg";
         var svg = document.createElementNS(svgNS, "svg");
-        svg.setAttribute("viewBox", "0 0 220 220");
+        svg.setAttribute("viewBox", "0 0 260 260");
         svg.setAttribute("class", "clock-svg");
 
         for (var h = 0; h < 24; h++) {

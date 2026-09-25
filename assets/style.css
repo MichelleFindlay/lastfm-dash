@@ -8,6 +8,7 @@
     --card-border: rgba(255, 255, 255, 0.12);
     --radius: 16px;
     --transition-slow: 900ms ease;
+    --color-transition: 5s ease;
 }
 
 * {
@@ -124,7 +125,7 @@ body {
     overflow: hidden;
     background: linear-gradient(135deg, var(--accent), #222);
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
-    transition: background var(--transition-slow);
+    transition: background var(--color-transition);
 }
 
 .art-tile img {
@@ -178,7 +179,7 @@ body {
 
 .status-badge.live {
     color: var(--accent);
-    transition: color var(--transition-slow);
+    transition: color var(--color-transition);
 }
 
 .eq {
@@ -193,7 +194,7 @@ body {
     background: var(--accent);
     animation: eq 900ms ease-in-out infinite;
     border-radius: 2px;
-    transition: background var(--transition-slow);
+    transition: background var(--color-transition);
 }
 
 .eq span:nth-child(1) { animation-delay: 0ms; }
@@ -314,7 +315,7 @@ body {
     font-weight: 700;
     color: var(--fg-dim);
     flex: none;
-    transition: background var(--transition-slow);
+    transition: background var(--color-transition);
 }
 
 .track-row .thumb img {
@@ -361,7 +362,7 @@ body {
     height: 100%;
     background: var(--accent);
     border-radius: 2px;
-    transition: background var(--transition-slow);
+    transition: background var(--color-transition);
 }
 
 .panel-wide {
@@ -513,6 +514,25 @@ body {
     color: inherit;
 }
 
+.lastfm-profile-line a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--fg-dim);
+    text-decoration: none;
+    transition: color 150ms ease;
+}
+
+.lastfm-profile-line a:hover {
+    color: var(--fg);
+    text-decoration: underline;
+}
+
+.lastfm-icon {
+    color: #d51007;
+    flex: none;
+}
+
 .version-line {
     margin-top: 6px;
     opacity: 0.8;
@@ -545,7 +565,7 @@ body {
     color: var(--accent);
     font-weight: 600;
     text-decoration: none;
-    transition: color var(--transition-slow);
+    transition: color var(--color-transition);
 }
 
 .version-update:hover {
@@ -713,7 +733,7 @@ body {
     border-radius: 6px 6px 0 0;
     background: var(--accent);
     min-height: 4px;
-    transition: background var(--transition-slow);
+    transition: background var(--color-transition);
 }
 
 .energy-bar-col.peak .energy-bar {
@@ -747,7 +767,7 @@ body {
 .distance-count {
     font-weight: 700;
     color: var(--accent);
-    transition: color var(--transition-slow);
+    transition: color var(--color-transition);
 }
 
 /* Festival poster */
@@ -824,7 +844,7 @@ body {
     height: 100%;
     background: var(--accent);
     border-radius: 5px;
-    transition: background var(--transition-slow);
+    transition: background var(--color-transition);
 }
 
 .mood-pct {
@@ -844,7 +864,7 @@ body {
     background: var(--accent);
     margin: 14px auto;
     animation: bpm-pulse 800ms ease-in-out infinite;
-    transition: background var(--transition-slow);
+    transition: background var(--color-transition);
 }
 
 @keyframes bpm-pulse {

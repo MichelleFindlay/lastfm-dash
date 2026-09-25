@@ -247,6 +247,16 @@ class LastFm
     ];
 
     /**
+     * Validates a UI period key (from config or a request param), falling
+     * back to $default if it's not one of the four the period pickers
+     * support. Single source of truth for that set of valid values.
+     */
+    public static function validUiPeriod(string $value, string $default = 'all_time'): string
+    {
+        return ($value === 'today' || array_key_exists($value, self::UI_PERIOD_MAP)) ? $value : $default;
+    }
+
+    /**
      * A genre breakdown derived from your top artists' community tags,
      * since Last.fm has no direct "genre" concept for a user. Each artist's
      * top tags are weighted by how much you've played that artist, then

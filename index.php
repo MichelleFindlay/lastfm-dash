@@ -1,5 +1,13 @@
 <?php
 
+// The genre breakdown samples deep into your top artists on a cold cache
+// (each one costs its own Last.fm call), so the default 30s execution
+// limit some hosts set isn't always enough for that first page load.
+// Silently no-ops on hosts where set_time_limit is disabled.
+if (function_exists('set_time_limit')) {
+    @set_time_limit(120);
+}
+
 require __DIR__ . '/lib/LastFm.php';
 require __DIR__ . '/lib/VersionCheck.php';
 
@@ -20,17 +28,23 @@ $config += [
     'top_limit'        => 8,
     'trend_limit'      => 8,
     'recent_limit'     => 5,
-    'genre_artist_limit' => 20,
+    'genre_artist_limit' => 200,
     'genre_limit'      => 8,
     'version'          => '0.0.0',
     'github_repo'      => '',
     'update_check_ttl' => 3600,
     'avg_track_minutes'     => 3.5,
-    'scrobble_sample_pages' => 5,
-    'festival_artist_limit' => 12,
+    'scrobble_sample_pages' => 200,
+    'festival_artist_limit' => 20,
     'timezone'              => '',
-    'bpm_track_limit'       => 15,
-    'obscure_artist_sample' => 25,
+    'bpm_track_limit'       => 50,
+    'obscure_artist_sample' => 200,
+
+    // Which timeframe each period-picker panel shows on page load:
+    // all_time | this_year | this_month | today
+    'favourites_default_period' => 'all_time',
+    'trending_default_period'   => 'today',
+    'genre_default_period'      => 'all_time',
 ];
 
 $needsSetup = $configMissing
@@ -72,10 +86,9 @@ if (!$needsSetup) {
 
     $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
 
-    $uiPeriodByConfig = ['overall' => 'all_time', '12month' => 'this_year', '1month' => 'this_month'];
-    $activeFavouritesPeriod = $uiPeriodByConfig[$config['top_period']] ?? 'all_time';
-    $activeGenrePeriod = $activeFavouritesPeriod;
-    $activeTrendingPeriod = 'today';
+    $activeFavouritesPeriod = LastFm::validUiPeriod($config['favourites_default_period'] ?? 'all_time', 'all_time');
+    $activeTrendingPeriod   = LastFm::validUiPeriod($config['trending_default_period'] ?? 'today', 'today');
+    $activeGenrePeriod      = LastFm::validUiPeriod($config['genre_default_period'] ?? 'all_time', 'all_time');
 
     $topTracks = $lastfm->getTracksForUiPeriod($activeFavouritesPeriod, (int) $config['top_limit'], $tz);
     $trending = $lastfm->getTracksForUiPeriod($activeTrendingPeriod, (int) $config['trend_limit'], $tz);
@@ -331,7 +344,14 @@ if (!empty($config['github_repo'])) {
 
     <footer class="site-footer">
         <?php if (!$needsSetup): ?>
-            <div>Data from <a href="https://www.last.fm/user/<?= e($config['username']) ?>" target="_blank" rel="noopener">last.fm/user/<?= e($config['username']) ?></a></div>
+            <div class="lastfm-profile-line">
+                <a href="https://www.last.fm/user/<?= e($config['username']) ?>" target="_blank" rel="noopener">
+                    <svg class="lastfm-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                        <path fill="currentColor" d="M10.584 17.21l-.88-2.392s-1.43 1.594-3.573 1.594c-1.897 0-3.244-1.649-3.244-4.288 0-3.382 1.704-4.591 3.381-4.591 2.42 0 3.189 1.567 3.849 3.574l.88 2.749c.88 2.666 2.529 4.81 7.285 4.81 3.409 0 5.718-1.044 5.718-3.793 0-2.227-1.265-3.381-3.63-3.931l-1.758-.385c-1.21-.275-1.567-.77-1.567-1.595 0-.934.742-1.484 1.952-1.484 1.32 0 2.034.495 2.144 1.677l2.749-.33c-.22-2.474-1.924-3.492-4.729-3.492-2.474 0-4.893.935-4.893 3.932 0 1.87.907 3.051 3.189 3.601l1.87.44c1.402.33 1.869.907 1.869 1.704 0 1.017-.99 1.43-2.86 1.43-2.776 0-3.93-1.457-4.59-3.464l-.907-2.75c-1.155-3.573-2.997-4.893-6.653-4.893C2.144 5.333 0 7.89 0 12.233c0 4.18 2.144 6.434 5.993 6.434 3.106 0 4.591-1.457 4.591-1.457z"></path>
+                    </svg>
+                    <span><?= e($config['username']) ?></span>
+                </a>
+            </div>
         <?php endif; ?>
         <div class="version-line">
             <?php if (!empty($config['github_repo'])): ?>
