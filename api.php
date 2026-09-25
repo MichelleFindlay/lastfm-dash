@@ -18,8 +18,10 @@ if (!is_file($configFile)) {
 
 $config = require $configFile;
 
-// Poll with a short cache TTL so "now playing" stays fresh without hammering the API.
-$lastfm = new LastFm($config['api_key'], $config['username'], 10);
+// Cache slightly shorter than the browser's poll interval so every poll gets
+// fresh data, while still de-duplicating any near-simultaneous requests.
+$pollSeconds = max(1, (int) ($config['poll_interval_ms'] ?? 10000) / 1000);
+$lastfm = new LastFm($config['api_key'], $config['username'], max(3, $pollSeconds - 2));
 $recent = $lastfm->getRecentTracks(1);
 
 $track = $recent['recenttracks']['track'][0] ?? null;
@@ -46,4 +48,5 @@ echo json_encode([
     'album_art'   => $albumArt,
     'url'         => $track['url'] ?? '',
     'date'        => $track['date']['#text'] ?? null,
+    'stats'       => LastFm::formatLifetimeStats($lastfm->getInfo()),
 ]);

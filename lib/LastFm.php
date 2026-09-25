@@ -81,6 +81,96 @@ class LastFm
         return $decoded;
     }
 
+    /**
+     * Lifetime account stats: total scrobbles, unique artist/album/track
+     * counts, and registration date.
+     */
+    public function getInfo(): ?array
+    {
+        $data = $this->call('user.getinfo', []);
+
+        return $data['user'] ?? null;
+    }
+
+    /**
+     * Formats getInfo() into the display-ready stats shown in the Lifetime
+     * Stats panel and pushed to the client on every "now playing" poll, so
+     * the numbers tick up as new scrobbles land instead of only refreshing
+     * on a full page reload.
+     */
+    public static function formatLifetimeStats(?array $userInfo): array
+    {
+        if (!$userInfo) {
+            return [];
+        }
+
+        $playcount = (int) ($userInfo['playcount'] ?? 0);
+        $registeredUnix = (int) ($userInfo['registered']['unixtime'] ?? 0);
+        $daysSince = $registeredUnix > 0 ? max(1, (int) floor((time() - $registeredUnix) / 86400)) : 0;
+
+        return [
+            'scrobbles'    => number_format($playcount),
+            'avg_day'      => $daysSince > 0 ? number_format($playcount / $daysSince, 1) : '—',
+            'artists'      => number_format((int) ($userInfo['artist_count'] ?? 0)),
+            'albums'       => number_format((int) ($userInfo['album_count'] ?? 0)),
+            'tracks'       => number_format((int) ($userInfo['track_count'] ?? 0)),
+            'member_since' => $registeredUnix > 0 ? date('j M Y', $registeredUnix) : '—',
+        ];
+    }
+
+    /**
+     * Reads/writes a JSON-serializable value from the file cache under an
+     * arbitrary key, for caching computed results (not just raw API
+     * responses) — e.g. the whole genre breakdown, not just its sub-calls.
+     */
+    private function cached(string $key, int $ttl, callable $compute)
+    {
+        $cacheFile = $this->cacheDir . '/' . $key . '.json';
+
+        if ($ttl > 0 && is_file($cacheFile) && (time() - filemtime($cacheFile)) < $ttl) {
+            $cached = json_decode((string) file_get_contents($cacheFile), true);
+            if ($cached !== null) {
+                return $cached;
+            }
+        }
+
+        $result = $compute();
+
+        if ($ttl > 0) {
+            @file_put_contents($cacheFile, json_encode($result));
+        }
+
+        return $result;
+    }
+
+    /**
+     * Cached GET for external (non-Last.fm) APIs used by a couple of
+     * widgets — e.g. Deezer for BPM, which Last.fm doesn't expose. Reuses
+     * the same file cache as the Last.fm API calls.
+     */
+    public function externalGet(string $url, int $ttl, array $headers = []): ?string
+    {
+        $cacheFile = $this->cacheDir . '/ext_' . md5($url) . '.json';
+
+        if ($ttl > 0 && is_file($cacheFile) && (time() - filemtime($cacheFile)) < $ttl) {
+            $cached = file_get_contents($cacheFile);
+            if ($cached !== false) {
+                return $cached;
+            }
+        }
+
+        $response = Http::get($url, $headers);
+        if ($response === null) {
+            return null;
+        }
+
+        if ($ttl > 0) {
+            @file_put_contents($cacheFile, $response);
+        }
+
+        return $response;
+    }
+
     public function getRecentTracks(int $limit = 1): ?array
     {
         return $this->call('user.getrecenttracks', ['limit' => $limit, 'extended' => 1]);
@@ -92,20 +182,21 @@ class LastFm
     }
 
     /**
-     * Tracks scrobbled during the current chart week, sorted by playcount.
+     * Resolves a configured IANA timezone name, falling back to the
+     * server's own default if it's blank or invalid. Shared by every
+     * "today" computation (genres, tracks) so they all agree on midnight.
      */
-    public function getWeeklyTrackChart(int $limit): array
+    public static function resolveTimezone(string $tzName): DateTimeZone
     {
-        $data = $this->call('user.getweeklytrackchart', []);
-        $tracks = $data['weeklytrackchart']['track'] ?? [];
-
-        if (isset($tracks['name'])) {
-            $tracks = [$tracks]; // API returns a single object (not an array) for exactly one track
+        if ($tzName !== '') {
+            try {
+                return new DateTimeZone($tzName);
+            } catch (Exception $e) {
+                // fall through to server default
+            }
         }
 
-        usort($tracks, fn($a, $b) => (int) ($b['playcount'] ?? 0) <=> (int) ($a['playcount'] ?? 0));
-
-        return array_slice($tracks, 0, $limit);
+        return new DateTimeZone(date_default_timezone_get());
     }
 
     /**
@@ -143,15 +234,196 @@ class LastFm
     }
 
     /**
+     * UI period keys (used by the genre breakdown's period picker) mapped
+     * to Last.fm's own period values. Last.fm has no calendar-year or
+     * single-day period, so "this_year" uses Last.fm's rolling 12-month
+     * window (its closest built-in equivalent) and "today" is computed
+     * separately from actual today's scrobbles.
+     */
+    private const UI_PERIOD_MAP = [
+        'all_time'   => 'overall',
+        'this_year'  => '12month',
+        'this_month' => '1month',
+    ];
+
+    /**
      * A genre breakdown derived from your top artists' community tags,
      * since Last.fm has no direct "genre" concept for a user. Each artist's
      * top tags are weighted by how much you've played that artist, then
-     * aggregated into percentages. Tag lookups are cached for a week since
-     * they rarely change, independent of the app's general API cache TTL.
+     * aggregated into percentages. The whole result is cached for a day
+     * (not just the underlying API calls), so it's computed once daily
+     * rather than re-aggregated on every page load.
      *
      * @return array<int, array{name: string, pct: float}>
      */
     public function getTopGenres(string $period, int $artistLimit, int $genreLimit): array
+    {
+        $cacheKey = 'genres_' . md5($this->user . $period . $artistLimit . $genreLimit);
+
+        return $this->cached($cacheKey, 86400, function () use ($period, $artistLimit, $genreLimit) {
+            return $this->computeTopGenres($period, $artistLimit, $genreLimit);
+        });
+    }
+
+    /**
+     * Genre breakdown for a UI period key ("all_time" / "this_year" /
+     * "this_month" / "today"), used by the interactive period picker.
+     */
+    public function getGenresForUiPeriod(string $uiPeriod, int $artistLimit, int $genreLimit, DateTimeZone $tz): array
+    {
+        if ($uiPeriod === 'today') {
+            return $this->getTodayGenres($genreLimit, $tz);
+        }
+
+        $period = self::UI_PERIOD_MAP[$uiPeriod] ?? 'overall';
+
+        return $this->getTopGenres($period, $artistLimit, $genreLimit);
+    }
+
+    /**
+     * Genre breakdown from just today's actual scrobbles, since Last.fm's
+     * period parameter has no single-day granularity. Cached briefly (not a
+     * full day, unlike the other periods) since "today" keeps changing as
+     * you listen.
+     */
+    private function getTodayGenres(int $genreLimit, DateTimeZone $tz): array
+    {
+        $cacheKey = 'genres_today_' . md5($this->user . $genreLimit . $tz->getName());
+
+        return $this->cached($cacheKey, 900, function () use ($genreLimit, $tz) {
+            $artistPlaycounts = $this->getArtistPlaycountsSince($this->todayStart($tz));
+
+            if (empty($artistPlaycounts)) {
+                return [];
+            }
+
+            return $this->genresFromScores($this->scoreGenreTags($artistPlaycounts), $genreLimit);
+        });
+    }
+
+    /**
+     * Top tracks for a UI period key ("all_time" / "this_year" /
+     * "this_month" / "today"), used by the Favourite Tracks and Trending
+     * period pickers. Returns a consistent shape regardless of source:
+     * {name, artist: {name}, playcount, image}.
+     */
+    public function getTracksForUiPeriod(string $uiPeriod, int $limit, DateTimeZone $tz): array
+    {
+        if ($uiPeriod === 'today') {
+            return $this->getTodayTopTracks($limit, $tz);
+        }
+
+        $period = self::UI_PERIOD_MAP[$uiPeriod] ?? 'overall';
+        $data = $this->call('user.gettoptracks', ['period' => $period, 'limit' => $limit]);
+        $tracks = $data['toptracks']['track'] ?? [];
+
+        if (isset($tracks['name'])) {
+            $tracks = [$tracks];
+        }
+
+        return $tracks;
+    }
+
+    /**
+     * Top tracks from just today's actual scrobbles. Cached briefly, same
+     * reasoning as getTodayGenres().
+     */
+    private function getTodayTopTracks(int $limit, DateTimeZone $tz): array
+    {
+        $cacheKey = 'today_tracks_' . md5($this->user . $limit . $tz->getName());
+
+        return $this->cached($cacheKey, 900, function () use ($limit, $tz) {
+            $counts = $this->getTrackCountsSince($this->todayStart($tz));
+            usort($counts, fn($a, $b) => $b['playcount'] <=> $a['playcount']);
+
+            return array_slice(array_values($counts), 0, $limit);
+        });
+    }
+
+    private function todayStart(DateTimeZone $tz): int
+    {
+        return (new DateTime('today', $tz))->getTimestamp();
+    }
+
+    /**
+     * Raw scrobbles (with a real date, i.e. not the currently-playing entry)
+     * from paginated recent tracks starting at $sinceUnix. Capped at 10
+     * pages (2,000 scrobbles) as a safety limit; a single day is normally
+     * well under one page.
+     */
+    private function getScrobblesSince(int $sinceUnix): array
+    {
+        $scrobbles = [];
+
+        for ($page = 1; $page <= 10; $page++) {
+            $data = $this->call('user.getrecenttracks', ['limit' => 200, 'page' => $page, 'from' => $sinceUnix], 300);
+            $tracks = $data['recenttracks']['track'] ?? [];
+
+            if (isset($tracks['name'])) {
+                $tracks = [$tracks];
+            }
+
+            if (empty($tracks)) {
+                break;
+            }
+
+            foreach ($tracks as $t) {
+                if (isset($t['date']['uts'])) {
+                    $scrobbles[] = $t;
+                }
+            }
+
+            $totalPages = (int) ($data['recenttracks']['@attr']['totalPages'] ?? 1);
+            if ($page >= $totalPages) {
+                break;
+            }
+        }
+
+        return $scrobbles;
+    }
+
+    /**
+     * @return array<string, int> artist name => scrobble count
+     */
+    private function getArtistPlaycountsSince(int $sinceUnix): array
+    {
+        $counts = [];
+
+        foreach ($this->getScrobblesSince($sinceUnix) as $t) {
+            $name = $t['artist']['#text'] ?? ($t['artist']['name'] ?? '');
+            if ($name !== '') {
+                $counts[$name] = ($counts[$name] ?? 0) + 1;
+            }
+        }
+
+        return $counts;
+    }
+
+    /**
+     * @return array<string, array{name: string, artist: array{name: string}, playcount: int, image: array}>
+     */
+    private function getTrackCountsSince(int $sinceUnix): array
+    {
+        $counts = [];
+
+        foreach ($this->getScrobblesSince($sinceUnix) as $t) {
+            $name = $t['name'] ?? '';
+            $artist = $t['artist']['#text'] ?? ($t['artist']['name'] ?? '');
+            if ($name === '' || $artist === '') {
+                continue;
+            }
+
+            $key = $artist . "\x01" . $name;
+            if (!isset($counts[$key])) {
+                $counts[$key] = ['name' => $name, 'artist' => ['name' => $artist], 'playcount' => 0, 'image' => $t['image'] ?? []];
+            }
+            $counts[$key]['playcount']++;
+        }
+
+        return $counts;
+    }
+
+    private function computeTopGenres(string $period, int $artistLimit, int $genreLimit): array
     {
         $top = $this->call('user.gettopartists', ['period' => $period, 'limit' => $artistLimit]);
         $artists = $top['topartists']['artist'] ?? [];
@@ -160,12 +432,28 @@ class LastFm
             $artists = [$artists]; // API returns a single object (not an array) for exactly one artist
         }
 
-        $scores = [];
-
+        $artistPlaycounts = [];
         foreach ($artists as $artist) {
             $name = $artist['name'] ?? '';
             $playcount = (int) ($artist['playcount'] ?? 0);
-            if ($name === '' || $playcount === 0) {
+            if ($name !== '' && $playcount > 0) {
+                $artistPlaycounts[$name] = $playcount;
+            }
+        }
+
+        return $this->genresFromScores($this->scoreGenreTags($artistPlaycounts), $genreLimit);
+    }
+
+    /**
+     * @param array<string, int> $artistPlaycounts artist name => weight (playcount or scrobble count)
+     * @return array<string, int> tag name => aggregated score
+     */
+    private function scoreGenreTags(array $artistPlaycounts): array
+    {
+        $scores = [];
+
+        foreach ($artistPlaycounts as $name => $playcount) {
+            if ($name === '' || $playcount <= 0) {
                 continue;
             }
 
@@ -188,6 +476,11 @@ class LastFm
             }
         }
 
+        return $scores;
+    }
+
+    private function genresFromScores(array $scores, int $genreLimit): array
+    {
         arsort($scores);
         $total = array_sum($scores);
 

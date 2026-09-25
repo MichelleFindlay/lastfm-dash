@@ -14,7 +14,7 @@ $config = $configMissing ? [] : require $configFile;
 
 $config += [
     'app_name'         => 'Last.fm Dashboard',
-    'poll_interval_ms' => 15000,
+    'poll_interval_ms' => 10000,
     'cache_ttl'        => 60,
     'top_period'       => 'overall',
     'top_limit'        => 8,
@@ -24,18 +24,25 @@ $config += [
     'genre_limit'      => 8,
     'version'          => '0.0.0',
     'github_repo'      => '',
-    'update_check_branch' => 'main',
     'update_check_ttl' => 3600,
+    'avg_track_minutes'     => 3.5,
+    'scrobble_sample_pages' => 5,
+    'festival_artist_limit' => 12,
+    'timezone'              => '',
+    'bpm_track_limit'       => 15,
+    'obscure_artist_sample' => 25,
 ];
 
 $needsSetup = $configMissing
     || empty($config['api_key']) || $config['api_key'] === 'YOUR_LASTFM_API_KEY'
     || empty($config['username']) || $config['username'] === 'YOUR_LASTFM_USERNAME';
 
+$lastfm = null;
 $nowPlaying = null;
 $topTracks = [];
 $trending = [];
 $genres = [];
+$lifetimeStats = [];
 $apiError = false;
 
 if (!$needsSetup) {
@@ -63,35 +70,59 @@ if (!$needsSetup) {
         $apiError = true;
     }
 
-    $top = $lastfm->getTopTracks($config['top_period'], (int) $config['top_limit']);
-    $topTracks = $top['toptracks']['track'] ?? [];
+    $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
 
-    $trending = $lastfm->getWeeklyTrackChart((int) $config['trend_limit']);
+    $uiPeriodByConfig = ['overall' => 'all_time', '12month' => 'this_year', '1month' => 'this_month'];
+    $activeFavouritesPeriod = $uiPeriodByConfig[$config['top_period']] ?? 'all_time';
+    $activeGenrePeriod = $activeFavouritesPeriod;
+    $activeTrendingPeriod = 'today';
 
-    $genres = $lastfm->getTopGenres(
-        $config['top_period'],
+    $topTracks = $lastfm->getTracksForUiPeriod($activeFavouritesPeriod, (int) $config['top_limit'], $tz);
+    $trending = $lastfm->getTracksForUiPeriod($activeTrendingPeriod, (int) $config['trend_limit'], $tz);
+
+    $genres = $lastfm->getGenresForUiPeriod(
+        $activeGenrePeriod,
         (int) $config['genre_artist_limit'],
-        (int) $config['genre_limit']
+        (int) $config['genre_limit'],
+        $tz
     );
+
+    $statsMap = LastFm::formatLifetimeStats($lastfm->getInfo());
+    if ($statsMap) {
+        $lifetimeStats = [
+            ['key' => 'scrobbles', 'label' => 'Scrobbles', 'value' => $statsMap['scrobbles']],
+            ['key' => 'avg_day', 'label' => 'Avg / Day', 'value' => $statsMap['avg_day']],
+            ['key' => 'artists', 'label' => 'Artists', 'value' => $statsMap['artists']],
+            ['key' => 'albums', 'label' => 'Albums', 'value' => $statsMap['albums']],
+            ['key' => 'tracks', 'label' => 'Tracks', 'value' => $statsMap['tracks']],
+            ['key' => 'member_since', 'label' => 'Member Since', 'value' => $statsMap['member_since']],
+        ];
+    }
 }
 
-$maxTopPlaycount = max(array_map(fn($t) => (int) ($t['playcount'] ?? 0), $topTracks ?: [['playcount' => 1]]));
-$maxTrendPlaycount = max(array_map(fn($t) => (int) ($t['playcount'] ?? 0), $trending ?: [['playcount' => 1]]));
-
-$periodLabels = [
-    'overall' => 'All time',
-    '7day'    => 'Past 7 days',
-    '1month'  => 'Past month',
-    '3month'  => 'Past 3 months',
-    '6month'  => 'Past 6 months',
-    '12month' => 'Past year',
+$widgetDefs = [
+    ['id' => 'listening_clock', 'title' => 'Listening Clock', 'teaser' => 'When you actually listen, mapped across 24 hours'],
+    ['id' => 'energy_curve', 'title' => 'Energy Curve', 'teaser' => 'How your listening activity rises and falls through the week'],
+    ['id' => 'distance', 'title' => 'Distance Listened', 'teaser' => 'Your total minutes, converted into something absurd'],
+    ['id' => 'festival', 'title' => 'If Your Year Were a Festival', 'teaser' => 'Your top artists, billed as a festival lineup'],
+    ['id' => 'mood', 'title' => 'Mood Weather', 'teaser' => "This month's emotional forecast"],
+    ['id' => 'bpm', 'title' => 'BPM Average', 'teaser' => 'Your heart rate, if music were a pulse'],
+    ['id' => 'before_famous', 'title' => 'Before They Were Famous', 'teaser' => "Your favourites Last.fm listeners haven't caught onto yet"],
+    ['id' => 'obscurity', 'title' => 'Obscurity Index', 'teaser' => 'How mainstream your top artists really are, by the numbers'],
 ];
 
-$versionInfo = ['local' => null, 'remote' => null, 'up_to_date' => null, 'compare_url' => null, 'error' => null];
+$uiPeriodLabels = [
+    'all_time'   => 'All Time',
+    'this_year'  => 'This Year',
+    'this_month' => 'This Month',
+    'today'      => 'Today',
+];
+
+$versionInfo = ['installed' => $config['version'] ?? '0.0.0', 'latest' => null, 'up_to_date' => null, 'release_url' => null, 'error' => null];
 if (!empty($config['github_repo'])) {
     $versionCheck = new VersionCheck(
         $config['github_repo'],
-        $config['update_check_branch'] ?? 'main',
+        $config['version'] ?? '0.0.0',
         __DIR__,
         (int) ($config['update_check_ttl'] ?? 3600)
     );
@@ -163,104 +194,138 @@ if (!empty($config['github_repo'])) {
         </div>
     </section>
 
+    <?php
+    function renderPeriodPicker(string $group, string $active, array $labels): void
+    {
+        echo '<div class="period-picker" data-period-group-wrap="' . e($group) . '">';
+        foreach ($labels as $code => $label) {
+            $activeClass = $code === $active ? ' active' : '';
+            $title = $code === 'this_year' ? ' title="Last.fm\'s rolling 12-month window, not calendar year"' : '';
+            echo '<button type="button" class="period-btn' . $activeClass . '" data-period-group="' . e($group) . '" data-period="' . e($code) . '"' . $title . '>' . e($label) . '</button>';
+        }
+        echo '</div>';
+    }
+
+    function renderTrackListMarkup(array $tracks, ?LastFm $lastfm, string $emptyMessage): void
+    {
+        if (empty($tracks)) {
+            echo '<p class="empty-state">' . e($emptyMessage) . '</p>';
+            return;
+        }
+
+        $maxPlaycount = max(array_map(fn($t) => (int) ($t['playcount'] ?? 0), $tracks ?: [['playcount' => 1]]));
+        echo '<ol class="track-list">';
+        foreach ($tracks as $i => $t) {
+            $playcount = (int) ($t['playcount'] ?? 0);
+            $pct = max(4, round($playcount / $maxPlaycount * 100));
+            $artistName = $t['artist']['name'] ?? '';
+            $art = $lastfm->getTrackArt($artistName, $t['name'] ?? '') ?: LastFm::bestImage($t['image'] ?? []);
+            $initial = strtoupper(substr($t['name'] ?? '?', 0, 1));
+            $thumb = $art
+                ? '<img src="' . e($art) . '" alt="" loading="lazy">'
+                : e($initial);
+            echo '<li class="track-row">'
+                . '<span class="rank">' . ($i + 1) . '</span>'
+                . '<span class="thumb">' . $thumb . '</span>'
+                . '<span class="meta"><div class="name">' . e($t['name'] ?? '') . '</div><div class="artist">' . e($artistName) . '</div></span>'
+                . '<span class="count">' . number_format($playcount) . ' plays<div class="bar"><div class="bar-fill" style="width: ' . $pct . '%"></div></div></span>'
+                . '</li>';
+        }
+        echo '</ol>';
+    }
+    ?>
+
     <div class="panels">
         <section class="panel">
-            <h2>Favourite Tracks &middot; <?= e($periodLabels[$config['top_period']] ?? $config['top_period']) ?></h2>
-            <?php if (empty($topTracks)): ?>
-                <p class="empty-state">No top tracks yet.</p>
-            <?php else: ?>
-                <ol class="track-list">
-                    <?php foreach ($topTracks as $i => $t):
-                        $playcount = (int) ($t['playcount'] ?? 0);
-                        $pct = max(4, round($playcount / $maxTopPlaycount * 100));
-                        $art = $lastfm->getTrackArt($t['artist']['name'] ?? '', $t['name'] ?? '')
-                            ?: LastFm::bestImage($t['image'] ?? []);
-                        $initial = strtoupper(substr($t['name'] ?? '?', 0, 1));
-                    ?>
-                    <li class="track-row">
-                        <span class="rank"><?= $i + 1 ?></span>
-                        <span class="thumb">
-                            <?php if ($art): ?>
-                                <img src="<?= e($art) ?>" alt="" loading="lazy">
-                            <?php else: ?>
-                                <?= e($initial) ?>
-                            <?php endif; ?>
-                        </span>
-                        <span class="meta">
-                            <div class="name"><?= e($t['name'] ?? '') ?></div>
-                            <div class="artist"><?= e($t['artist']['name'] ?? '') ?></div>
-                        </span>
-                        <span class="count">
-                            <?= number_format($playcount) ?> plays
-                            <div class="bar"><div class="bar-fill" style="width: <?= $pct ?>%"></div></div>
-                        </span>
-                    </li>
-                    <?php endforeach; ?>
-                </ol>
-            <?php endif; ?>
+            <div class="panel-header-row">
+                <h2>Favourite Tracks</h2>
+                <?php if (!$needsSetup): ?>
+                    <?php renderPeriodPicker('favourites', $activeFavouritesPeriod, $uiPeriodLabels); ?>
+                <?php endif; ?>
+            </div>
+            <div data-period-content="favourites">
+                <?php renderTrackListMarkup($topTracks, $lastfm, 'No tracks for this period yet.'); ?>
+            </div>
         </section>
 
         <section class="panel">
-            <h2>Trending &middot; This Week</h2>
-            <?php if (empty($trending)): ?>
-                <p class="empty-state">Not enough scrobbles this week yet.</p>
-            <?php else: ?>
-                <ol class="track-list">
-                    <?php foreach ($trending as $i => $t):
-                        $playcount = (int) ($t['playcount'] ?? 0);
-                        $pct = max(4, round($playcount / $maxTrendPlaycount * 100));
-                        $art = $lastfm->getTrackArt($t['artist']['#text'] ?? '', $t['name'] ?? '')
-                            ?: LastFm::bestImage($t['image'] ?? []);
-                        $initial = strtoupper(substr($t['name'] ?? '?', 0, 1));
-                    ?>
-                    <li class="track-row">
-                        <span class="rank"><?= $i + 1 ?></span>
-                        <span class="thumb">
-                            <?php if ($art): ?>
-                                <img src="<?= e($art) ?>" alt="" loading="lazy">
-                            <?php else: ?>
-                                <?= e($initial) ?>
-                            <?php endif; ?>
-                        </span>
-                        <span class="meta">
-                            <div class="name"><?= e($t['name'] ?? '') ?></div>
-                            <div class="artist"><?= e($t['artist']['#text'] ?? '') ?></div>
-                        </span>
-                        <span class="count">
-                            <?= number_format($playcount) ?> plays
-                            <div class="bar"><div class="bar-fill" style="width: <?= $pct ?>%"></div></div>
-                        </span>
-                    </li>
-                    <?php endforeach; ?>
-                </ol>
-            <?php endif; ?>
+            <div class="panel-header-row">
+                <h2>Trending</h2>
+                <?php if (!$needsSetup): ?>
+                    <?php renderPeriodPicker('trending', $activeTrendingPeriod, $uiPeriodLabels); ?>
+                <?php endif; ?>
+            </div>
+            <div data-period-content="trending">
+                <?php renderTrackListMarkup($trending, $lastfm, 'No tracks for this period yet.'); ?>
+            </div>
         </section>
     </div>
 
     <section class="panel panel-wide">
-        <h2>Genre Breakdown &middot; <?= e($periodLabels[$config['top_period']] ?? $config['top_period']) ?></h2>
-        <?php if (empty($genres)): ?>
-            <p class="empty-state">Not enough tagged artists yet.</p>
+        <div class="panel-header-row">
+            <h2>Genre Breakdown</h2>
+            <?php if (!$needsSetup): ?>
+                <?php renderPeriodPicker('genre', $activeGenrePeriod, $uiPeriodLabels); ?>
+            <?php endif; ?>
+        </div>
+        <div data-period-content="genre">
+            <?php if (empty($genres)): ?>
+                <p class="empty-state">Not enough tagged artists yet.</p>
+            <?php else: ?>
+                <div class="genre-bar">
+                    <?php foreach ($genres as $i => $g):
+                        $color = $g['name'] === 'Other' ? 'rgba(255,255,255,0.15)' : 'hsl(' . fmod($i * 137.508, 360) . ', 65%, 55%)';
+                    ?>
+                        <div class="genre-segment" style="width: <?= $g['pct'] ?>%; background: <?= $color ?>"
+                             title="<?= e($g['name'] . ' — ' . $g['pct'] . '%') ?>"></div>
+                    <?php endforeach; ?>
+                </div>
+                <ul class="genre-legend">
+                    <?php foreach ($genres as $i => $g):
+                        $color = $g['name'] === 'Other' ? 'rgba(255,255,255,0.15)' : 'hsl(' . fmod($i * 137.508, 360) . ', 65%, 55%)';
+                    ?>
+                        <li class="genre-legend-item">
+                            <span class="genre-swatch" style="background: <?= $color ?>"></span>
+                            <span class="genre-name"><?= e($g['name']) ?></span>
+                            <span class="genre-pct"><?= $g['pct'] ?>%</span>
+                        </li>
+                    <?php endforeach; ?>
+                </ul>
+            <?php endif; ?>
+        </div>
+    </section>
+
+    <?php if (!$needsSetup): ?>
+        <div class="widget-grid">
+            <?php foreach ($widgetDefs as $w): ?>
+                <button type="button" class="widget-card" data-widget-id="<?= e($w['id']) ?>">
+                    <span class="widget-card-title"><?= e($w['title']) ?></span>
+                    <span class="widget-card-teaser"><?= e($w['teaser']) ?></span>
+                </button>
+            <?php endforeach; ?>
+        </div>
+
+        <div class="modal-overlay" data-modal-overlay hidden>
+            <div class="modal" role="dialog" aria-modal="true">
+                <button type="button" class="modal-close" data-modal-close aria-label="Close">&times;</button>
+                <div class="modal-body" data-modal-body></div>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <section class="panel panel-wide">
+        <h2>Lifetime Stats</h2>
+        <?php if (empty($lifetimeStats)): ?>
+            <p class="empty-state">Stats unavailable.</p>
         <?php else: ?>
-            <div class="genre-bar">
-                <?php foreach ($genres as $i => $g):
-                    $color = $g['name'] === 'Other' ? 'rgba(255,255,255,0.15)' : 'hsl(' . fmod($i * 137.508, 360) . ', 65%, 55%)';
-                ?>
-                    <div class="genre-segment" style="width: <?= $g['pct'] ?>%; background: <?= $color ?>"
-                         title="<?= e($g['name'] . ' — ' . $g['pct'] . '%') ?>"></div>
+            <div class="stats-row">
+                <?php foreach ($lifetimeStats as $stat): ?>
+                    <div class="stat-item">
+                        <div class="stat-value" data-stat="<?= e($stat['key']) ?>"><?= e($stat['value']) ?></div>
+                        <div class="stat-label"><?= e($stat['label']) ?></div>
+                    </div>
                 <?php endforeach; ?>
             </div>
-            <ul class="genre-legend">
-                <?php foreach ($genres as $i => $g):
-                    $color = $g['name'] === 'Other' ? 'rgba(255,255,255,0.15)' : 'hsl(' . fmod($i * 137.508, 360) . ', 65%, 55%)';
-                ?>
-                    <li class="genre-legend-item">
-                        <span class="genre-swatch" style="background: <?= $color ?>"></span>
-                        <span class="genre-name"><?= e($g['name']) ?></span>
-                        <span class="genre-pct"><?= $g['pct'] ?>%</span>
-                    </li>
-                <?php endforeach; ?>
-            </ul>
         <?php endif; ?>
     </section>
 
@@ -269,16 +334,23 @@ if (!empty($config['github_repo'])) {
             <div>Data from <a href="https://www.last.fm/user/<?= e($config['username']) ?>" target="_blank" rel="noopener">last.fm/user/<?= e($config['username']) ?></a></div>
         <?php endif; ?>
         <div class="version-line">
+            <?php if (!empty($config['github_repo'])): ?>
+                <a class="version-gh-link" href="https://github.com/<?= e($config['github_repo']) ?>" target="_blank" rel="noopener" aria-label="View on GitHub">
+                    <svg class="github-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                        <path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"></path>
+                    </svg>
+                </a>
+            <?php endif; ?>
             <?= e('lastfm-dash v' . ($config['version'] ?? '0.0.0')) ?>
             <?php if (empty($config['github_repo'])): ?>
                 &middot; <span class="version-muted">update check disabled</span>
             <?php elseif ($versionInfo['error']): ?>
                 &middot; <span class="version-muted"><?= e($versionInfo['error']) ?></span>
             <?php elseif ($versionInfo['up_to_date']): ?>
-                &middot; <span class="version-ok">up to date</span> (<?= e($versionInfo['local']) ?>)
+                &middot; <span class="version-ok">up to date</span>
             <?php else: ?>
-                &middot; <a class="version-update" href="<?= e($versionInfo['compare_url']) ?>" target="_blank" rel="noopener">update available</a>
-                (<?= e($versionInfo['local']) ?> &rarr; <?= e($versionInfo['remote']) ?>)
+                &middot; <a class="version-update" href="<?= e($versionInfo['release_url']) ?>" target="_blank" rel="noopener">Update available: v<?= e($versionInfo['latest']) ?></a>
+                — you're on v<?= e($versionInfo['installed']) ?>
             <?php endif; ?>
         </div>
     </footer>

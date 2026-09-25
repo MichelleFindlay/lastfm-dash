@@ -124,6 +124,7 @@ body {
     overflow: hidden;
     background: linear-gradient(135deg, var(--accent), #222);
     box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+    transition: background var(--transition-slow);
 }
 
 .art-tile img {
@@ -176,6 +177,7 @@ body {
 
 .status-badge.live {
     color: var(--accent);
+    transition: color var(--transition-slow);
 }
 
 .eq {
@@ -190,6 +192,7 @@ body {
     background: var(--accent);
     animation: eq 900ms ease-in-out infinite;
     border-radius: 2px;
+    transition: background var(--transition-slow);
 }
 
 .eq span:nth-child(1) { animation-delay: 0ms; }
@@ -310,6 +313,7 @@ body {
     font-weight: 700;
     color: var(--fg-dim);
     flex: none;
+    transition: background var(--transition-slow);
 }
 
 .track-row .thumb img {
@@ -361,6 +365,48 @@ body {
 
 .panel-wide {
     margin-top: 24px;
+}
+
+.panel-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.panel-header-row h2 {
+    margin: 0;
+}
+
+.period-picker {
+    display: flex;
+    gap: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 10px;
+    padding: 3px;
+}
+
+.period-btn {
+    border: none;
+    background: transparent;
+    color: var(--fg-dim);
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 6px 12px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 150ms ease, color 150ms ease;
+}
+
+.period-btn:hover {
+    color: var(--fg);
+}
+
+.period-btn.active {
+    background: var(--accent);
+    color: #fff;
 }
 
 .genre-bar {
@@ -415,6 +461,40 @@ body {
     font-size: 0.78rem;
 }
 
+.stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+}
+
+.stat-item {
+    flex: 1 1 120px;
+    text-align: center;
+    padding: 12px 8px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.stat-value {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--fg);
+}
+
+.stat-label {
+    margin-top: 4px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--fg-dim);
+}
+
+@media (max-width: 480px) {
+    .stat-item {
+        flex-basis: 40%;
+    }
+}
+
 .empty-state {
     color: var(--fg-dim);
     font-size: 0.85rem;
@@ -434,6 +514,21 @@ body {
 .version-line {
     margin-top: 6px;
     opacity: 0.8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.version-gh-link {
+    display: inline-flex;
+    color: var(--fg-dim);
+    transition: color 150ms ease;
+}
+
+.version-gh-link:hover {
+    color: var(--fg);
 }
 
 .version-muted {
@@ -448,8 +543,309 @@ body {
     color: var(--accent);
     font-weight: 600;
     text-decoration: none;
+    transition: color var(--transition-slow);
 }
 
 .version-update:hover {
     text-decoration: underline;
+}
+
+/* --- Insight widgets --- */
+
+.widget-grid {
+    margin-top: 24px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 14px;
+}
+
+.widget-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-align: left;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    transition: border-color 200ms ease, transform 200ms ease, background 200ms ease;
+}
+
+.widget-card:hover {
+    border-color: var(--accent-soft);
+    background: rgba(255, 255, 255, 0.09);
+    transform: translateY(-2px);
+}
+
+.widget-card:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.widget-card-title {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.widget-card-teaser {
+    font-size: 0.8rem;
+    color: var(--fg-dim);
+    line-height: 1.35;
+}
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(4, 4, 6, 0.75);
+    backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.modal-overlay[hidden] {
+    display: none;
+}
+
+.modal {
+    position: relative;
+    width: 100%;
+    max-width: 560px;
+    max-height: 85vh;
+    overflow-y: auto;
+    background: #14141a;
+    border: 1px solid var(--card-border);
+    border-radius: 20px;
+    padding: 32px 28px 28px;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-close {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--fg);
+    font-size: 1.2rem;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.modal-close:hover {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.widget-loading,
+.widget-empty {
+    color: var(--fg-dim);
+    font-size: 0.9rem;
+    text-align: center;
+    padding: 24px 0;
+}
+
+.widget-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin: 0 0 4px;
+}
+
+.widget-headline {
+    font-size: 1.5rem;
+    font-weight: 700;
+    text-align: center;
+    margin: 8px 0;
+}
+
+.widget-subtext {
+    text-align: center;
+    font-size: 0.8rem;
+    color: var(--fg-dim);
+    margin-top: 8px;
+}
+
+/* Listening clock */
+
+.clock-svg {
+    display: block;
+    width: 100%;
+    max-width: 260px;
+    margin: 8px auto;
+}
+
+.clock-svg text {
+    fill: var(--fg-dim);
+    font-size: 9px;
+}
+
+/* Energy curve */
+
+.energy-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    height: 140px;
+    margin: 16px 0 8px;
+}
+
+.energy-bar-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+    height: 100%;
+}
+
+.energy-bar {
+    width: 100%;
+    border-radius: 6px 6px 0 0;
+    background: var(--accent);
+    min-height: 4px;
+    transition: background var(--transition-slow);
+}
+
+.energy-bar-col.peak .energy-bar {
+    background: linear-gradient(180deg, #fff, var(--accent));
+}
+
+.energy-bar-label {
+    font-size: 0.72rem;
+    color: var(--fg-dim);
+}
+
+/* Distance listened */
+
+.distance-list {
+    list-style: none;
+    margin: 16px 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.distance-list li {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.9rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 8px;
+}
+
+.distance-count {
+    font-weight: 700;
+    color: var(--accent);
+    transition: color var(--transition-slow);
+}
+
+/* Festival poster */
+
+.festival-poster {
+    text-align: center;
+    padding: 12px 0;
+}
+
+.festival-poster-title {
+    font-size: 1.3rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.festival-poster-sub {
+    font-size: 0.75rem;
+    color: var(--fg-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 18px;
+}
+
+.festival-tier {
+    margin: 14px 0;
+}
+
+.festival-tier-headliner {
+    font-size: 1.6rem;
+    font-weight: 800;
+    line-height: 1.5;
+}
+
+.festival-tier-main {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--fg-dim);
+    line-height: 1.6;
+}
+
+.festival-tier-tent {
+    font-size: 0.85rem;
+    color: var(--fg-dim);
+    opacity: 0.75;
+    line-height: 1.7;
+}
+
+/* Mood weather */
+
+.mood-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 10px 0;
+}
+
+.mood-name {
+    flex: none;
+    width: 90px;
+    font-size: 0.85rem;
+    text-transform: capitalize;
+}
+
+.mood-bar-track {
+    flex: 1;
+    height: 10px;
+    border-radius: 5px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.mood-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 5px;
+    transition: background var(--transition-slow);
+}
+
+.mood-pct {
+    flex: none;
+    width: 42px;
+    text-align: right;
+    font-size: 0.8rem;
+    color: var(--fg-dim);
+}
+
+/* BPM pulse */
+
+.bpm-pulse-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin: 14px auto;
+    animation: bpm-pulse 800ms ease-in-out infinite;
+    transition: background var(--transition-slow);
+}
+
+@keyframes bpm-pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.7); opacity: 0.45; }
 }
