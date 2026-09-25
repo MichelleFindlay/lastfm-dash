@@ -64,13 +64,10 @@ return [
     'cron_enabled' => false,
     'cron_secret'  => '',
 
-    // Displayed in the footer, and compared against the latest GitHub
-    // release below to advise you when it's time to update
-    'version' => '1.0.0',
-
-    // Footer "update available" check: compares the version above against
-    // the latest published release on this GitHub repo. Set github_repo to
-    // '' to disable the check (and hide the GitHub link) entirely.
+    // Footer "update available" check: compares the app's own version (the
+    // VERSION file at the project root — not this config) against the
+    // latest published release on this GitHub repo. Set github_repo to ''
+    // to disable the check (and hide the GitHub link) entirely.
     'github_repo'      => 'MichelleFindlay/lastfm-dash',
     'update_check_ttl' => 3600,
 ];

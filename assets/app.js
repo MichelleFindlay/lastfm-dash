@@ -26,6 +26,24 @@
         }
     }
 
+    // Last.fm's API sometimes lists an image URL that 404s on its own CDN
+    // (seen in practice: it advertises a large size that's missing while
+    // smaller sizes of the same image work fine). Rather than add a slow
+    // server-side HEAD request per image to verify, fall back to the
+    // existing letter-placeholder UI whenever a load actually fails.
+    function fallBackToLetterOnError(imgEl, fallbackEl) {
+        if (!imgEl || !fallbackEl) {
+            return;
+        }
+        imgEl.addEventListener("error", function () {
+            imgEl.style.display = "none";
+            fallbackEl.style.display = "";
+        });
+    }
+
+    fallBackToLetterOnError(els.trackArtImg, els.trackArtFallback);
+    fallBackToLetterOnError(els.albumArtImg, els.albumArtFallback);
+
     function setArt(imgEl, fallbackEl, url) {
         if (!imgEl) {
             return;
@@ -599,14 +617,22 @@
             li.appendChild(el("span", "rank", String(t.rank)));
 
             var thumb = el("span", "thumb");
+            var initial = (t.name || "?").charAt(0).toUpperCase();
             if (t.art) {
                 var img = document.createElement("img");
                 img.src = t.art;
                 img.alt = "";
                 img.loading = "lazy";
+                // Last.fm's API occasionally lists an image URL that 404s on
+                // its own CDN — fall back to the letter placeholder on load
+                // failure rather than showing a broken image.
+                img.addEventListener("error", function () {
+                    img.style.display = "none";
+                    thumb.textContent = initial;
+                });
                 thumb.appendChild(img);
             } else {
-                thumb.textContent = (t.name || "?").charAt(0).toUpperCase();
+                thumb.textContent = initial;
             }
             li.appendChild(thumb);
 

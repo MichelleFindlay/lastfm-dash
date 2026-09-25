@@ -16,6 +16,19 @@ function e(?string $value): string
     return htmlspecialchars($value ?? '', ENT_QUOTES, 'UTF-8');
 }
 
+/**
+ * The app's own version, tracked in git via a plain VERSION file rather
+ * than config.php — config.php is gitignored and user-managed, so it's the
+ * wrong place for something that describes the codebase itself, bumped by
+ * whoever cuts a release rather than by each individual install.
+ */
+function appVersion(): string
+{
+    $versionFile = __DIR__ . '/VERSION';
+
+    return is_file($versionFile) ? trim((string) file_get_contents($versionFile)) : '0.0.0';
+}
+
 $configFile = __DIR__ . '/config.php';
 $configMissing = !is_file($configFile);
 $config = $configMissing ? [] : require $configFile;
@@ -30,7 +43,6 @@ $config += [
     'recent_limit'     => 5,
     'genre_artist_limit' => 200,
     'genre_limit'      => 8,
-    'version'          => '0.0.0',
     'github_repo'      => '',
     'update_check_ttl' => 3600,
     'avg_track_minutes'     => 3.5,
@@ -137,11 +149,11 @@ $uiPeriodLabels = [
     'today'      => 'Today',
 ];
 
-$versionInfo = ['installed' => $config['version'] ?? '0.0.0', 'latest' => null, 'up_to_date' => null, 'release_url' => null, 'error' => null];
+$versionInfo = ['installed' => appVersion(), 'latest' => null, 'up_to_date' => null, 'release_url' => null, 'error' => null];
 if (!empty($config['github_repo'])) {
     $versionCheck = new VersionCheck(
         $config['github_repo'],
-        $config['version'] ?? '0.0.0',
+        appVersion(),
         __DIR__,
         (int) ($config['update_check_ttl'] ?? 3600)
     );
@@ -240,8 +252,12 @@ if (!empty($config['github_repo'])) {
             $artistName = $t['artist']['name'] ?? '';
             $art = $lastfm->getTrackArt($artistName, $t['name'] ?? '') ?: LastFm::bestImage($t['image'] ?? []);
             $initial = strtoupper(substr($t['name'] ?? '?', 0, 1));
+            // Last.fm's API occasionally lists an image URL that 404s on its
+            // own CDN, so fall back to the letter placeholder on load
+            // failure rather than showing a broken image.
             $thumb = $art
-                ? '<img src="' . e($art) . '" alt="" loading="lazy">'
+                ? '<img src="' . e($art) . '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'\';">'
+                    . '<span class="thumb-fallback" style="display:none">' . e($initial) . '</span>'
                 : e($initial);
             echo '<li class="track-row">'
                 . '<span class="rank">' . ($i + 1) . '</span>'
@@ -367,7 +383,7 @@ if (!empty($config['github_repo'])) {
                     </svg>
                 </a>
             <?php endif; ?>
-            <?= e('lastfm-dash v' . ($config['version'] ?? '0.0.0')) ?>
+            <?= e('lastfm-dash v' . appVersion()) ?>
             <?php if (empty($config['github_repo'])): ?>
                 &middot; <span class="version-muted">update check disabled</span>
             <?php elseif ($versionInfo['error']): ?>
