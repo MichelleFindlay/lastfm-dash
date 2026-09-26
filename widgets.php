@@ -24,6 +24,7 @@ require __DIR__ . '/lib/LastFm.php';
 require __DIR__ . '/lib/Widgets.php';
 require __DIR__ . '/lib/WidgetCache.php';
 require __DIR__ . '/lib/WidgetRegistry.php';
+require __DIR__ . '/lib/LibrarySync.php';
 
 $configFile = __DIR__ . '/config.php';
 if (!is_file($configFile)) {
@@ -37,7 +38,8 @@ $id = $_GET['id'] ?? '';
 
 $lastfm = new LastFm($config['api_key'], $config['username'], (int) ($config['cache_ttl'] ?? 60));
 $widgets = new Widgets($lastfm, $config);
-$handlers = WidgetRegistry::handlers($lastfm, $widgets, $config);
+$library = new LibrarySync($lastfm, $config['username']);
+$handlers = WidgetRegistry::handlers($lastfm, $widgets, $config, $library);
 
 if (!isset($handlers[$id])) {
     http_response_code(404);

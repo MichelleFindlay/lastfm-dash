@@ -11,6 +11,7 @@ if (function_exists('set_time_limit')) {
 require __DIR__ . '/lib/LastFm.php';
 require __DIR__ . '/lib/VersionCheck.php';
 require __DIR__ . '/lib/ListenLinks.php';
+require __DIR__ . '/lib/LibrarySync.php';
 
 function e(?string $value): string
 {
@@ -85,6 +86,7 @@ $config += [
     'timezone'              => '',
     'bpm_track_limit'       => 50,
     'obscure_artist_sample' => 200,
+    'library_backfill_pages_per_run' => 20,
 
     // Which timeframe each period-picker panel shows on page load:
     // all_time | this_year | this_month | this_week | today
@@ -164,10 +166,19 @@ if (!$needsSetup) {
     $activeTrendingPeriod   = LastFm::validUiPeriod($config['trending_default_period'] ?? 'today', 'today');
     $activeGenrePeriod      = LastFm::validUiPeriod($config['genre_default_period'] ?? 'all_time', 'all_time');
 
-    $topTracks = $lastfm->getTracksForUiPeriod($activeFavouritesPeriod, (int) $config['top_limit'], $tz);
-    $trending = $lastfm->getTracksForUiPeriod($activeTrendingPeriod, (int) $config['trend_limit'], $tz);
+    $library = new LibrarySync($lastfm, $config['username']);
 
-    $genres = $lastfm->getGenresForUiPeriod(
+    $topTracks = $library->tracksForPeriod($activeFavouritesPeriod, (int) $config['top_limit'], $tz)
+        ?? $lastfm->getTracksForUiPeriod($activeFavouritesPeriod, (int) $config['top_limit'], $tz);
+    $trending = $library->tracksForPeriod($activeTrendingPeriod, (int) $config['trend_limit'], $tz)
+        ?? $lastfm->getTracksForUiPeriod($activeTrendingPeriod, (int) $config['trend_limit'], $tz);
+
+    $genres = $library->genresForUiPeriod(
+        $activeGenrePeriod,
+        (int) $config['genre_artist_limit'],
+        (int) $config['genre_limit'],
+        $tz
+    ) ?? $lastfm->getGenresForUiPeriod(
         $activeGenrePeriod,
         (int) $config['genre_artist_limit'],
         (int) $config['genre_limit'],
@@ -313,13 +324,7 @@ if (!empty($config['github_repo'])) {
         echo '<div class="period-picker" data-period-group-wrap="' . e($group) . '">';
         foreach ($labels as $code => $label) {
             $activeClass = $code === $active ? ' active' : '';
-            $title = '';
-            if ($code === 'this_year') {
-                $title = ' title="Last.fm\'s rolling 12-month window, not calendar year"';
-            } elseif ($code === 'this_week') {
-                $title = ' title="Last.fm\'s rolling 7-day window, not calendar week"';
-            }
-            echo '<button type="button" class="period-btn' . $activeClass . '" data-period-group="' . e($group) . '" data-period="' . e($code) . '"' . $title . '>' . e($label) . '</button>';
+            echo '<button type="button" class="period-btn' . $activeClass . '" data-period-group="' . e($group) . '" data-period="' . e($code) . '">' . e($label) . '</button>';
         }
         echo '</div>';
     }
