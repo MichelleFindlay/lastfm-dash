@@ -305,11 +305,17 @@ class LibrarySync
 
     /**
      * Genre breakdown for a UI period key, or null if the snapshot doesn't
-     * cover it yet. Reuses LastFm's own tag-scoring (still a live,
-     * week-cached call per artist) against locally-computed playcounts
-     * instead of a live user.gettopartists call.
+     * cover it yet. Scores every distinct artist scrobbled in that period
+     * (not a capped sample — the whole point of having the full history
+     * locally), so the result includes every genre found with no "Other"
+     * catch-all bucket. Only artists whose tags are already cached
+     * contribute (cache-only — never triggers a live lookup from a page
+     * request); backfillArtistTags() is what actually fills that cache in,
+     * paced over many cron runs, so coverage — and how complete this
+     * breakdown is — grows over time rather than needing a lookup burst
+     * covering potentially thousands of artists in one request.
      */
-    public function genresForUiPeriod(string $uiPeriod, int $artistLimit, int $genreLimit, DateTimeZone $tz): ?array
+    public function genresForUiPeriod(string $uiPeriod, DateTimeZone $tz, bool $onlySpotifyGenres = false): ?array
     {
         $artistCounts = $this->topArtistPlaycounts(self::periodStart($uiPeriod, $tz));
         if ($artistCounts === null) {
@@ -320,8 +326,47 @@ class LibrarySync
             return [];
         }
 
-        $top = array_slice($artistCounts, 0, $artistLimit, true);
+        $scores = $this->lastfm->scoreGenreTags($artistCounts, true, $onlySpotifyGenres);
 
-        return LastFm::genresFromScores($this->lastfm->scoreGenreTags($top), $genreLimit);
+        return LastFm::genresFromScores($scores, 0, false);
+    }
+
+    /**
+     * Fetches Last.fm tags for up to $maxArtists distinct artists from the
+     * local scrobble history that don't have cached tags yet, heaviest
+     * playcount first (so the artists that matter most to the breakdown
+     * gain coverage soonest). Meant to be called from cron.php every run,
+     * paced across many runs the same way backfillBatch() paces the
+     * scrobble history itself — a library with thousands of distinct
+     * artists would otherwise need a lookup burst covering all of them at
+     * once just to compute one Genre Breakdown.
+     *
+     * @return array{tagged: int, total_artists: int}
+     */
+    public function backfillArtistTags(int $maxArtists): array
+    {
+        $state = $this->load();
+
+        $counts = [];
+        foreach ($state['scrobbles'] as [$artist, , ]) {
+            $counts[$artist] = ($counts[$artist] ?? 0) + 1;
+        }
+        arsort($counts);
+
+        $tagged = 0;
+        foreach (array_keys($counts) as $name) {
+            if ($tagged >= $maxArtists) {
+                break;
+            }
+
+            if ($this->lastfm->call('artist.gettoptags', ['artist' => $name], 604800, true) !== null) {
+                continue; // already cached — doesn't count against this run's batch
+            }
+
+            $this->lastfm->call('artist.gettoptags', ['artist' => $name], 604800);
+            $tagged++;
+        }
+
+        return ['tagged' => $tagged, 'total_artists' => count($counts)];
     }
 }

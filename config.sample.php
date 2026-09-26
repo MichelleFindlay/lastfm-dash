@@ -53,6 +53,12 @@ return [
     // locally, it's served from this file instead of a live Last.fm call.
     'library_backfill_pages_per_run' => 20,
 
+    // How many not-yet-tagged distinct artists cron.php looks up per run
+    // while building full tag coverage for Genre Breakdown's local ("scan
+    // everything", no "Other" bucket) view — see lib/LibrarySync.php's
+    // backfillArtistTags(). Heaviest-played artists are tagged first.
+    'library_tag_backfill_per_run' => 50,
+
     // Which timeframe each period-picker panel shows on page load. Visitors
     // can still switch it themselves — this only sets the initial view.
     // Valid values: all_time | this_year | this_month | this_week | today
@@ -79,9 +85,28 @@ return [
     // links with zero setup; adding credentials upgrades them to a
     // verified direct link to the exact track. See lib/ListenLinks.php for
     // where to get each one (both are free).
+    //Spotify needs a free Client ID/Secret from
+    //https://developer.spotify.com/dashboard (Client Credentials flow — no
+    //user login involved, just app-level access to search). As of Spotify's
+    //Current API policy, the account that owns the app also needs an active
+    //Spotify Premium subscription for its Search endpoint to work in
+    //Development Mode — without one, Spotify's API returns an error and this
+    //silently falls back to the search link (confirmed in testing: token
+    //exchange succeeds, but the search call itself is rejected with "Active
+    //premium subscription required for the owner of the app").
+    // *
+    //YouTube needs a free API key from https://console.cloud.google.com
+    //(enable "YouTube Data API v3"). Its free quota is limited (10,000
+    //units/day by default, and a search costs 100 units — ~100 searches/day),
+    //so this is genuinely optional — the search-link fallback is completely
+    //serviceable on its own. youtube_daily_limit below caps live lookups to
+    //stay clear of that quota rather than risking the key getting
+    //rate-limited or suspended.
+    // *
     'spotify_client_id'     => '',
     'spotify_client_secret' => '',
     'youtube_api_key'       => '',
+    'youtube_daily_limit'   => 99,   // max live YouTube API calls per rolling 24h window; excess lookups fall back to the search link
 
     // Footer "update available" check: compares the app's own version (the
     // VERSION file at the project root — not this config) against the

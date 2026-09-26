@@ -519,6 +519,36 @@ body {
     margin: 0;
 }
 
+.genre-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.genre-threshold-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.78rem;
+    color: var(--fg-dim);
+}
+
+.genre-threshold-label select {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--fg);
+    border: 1px solid var(--card-border);
+    border-radius: 7px;
+    padding: 5px 8px;
+    font-size: 0.78rem;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.genre-legend-item.genre-hidden {
+    display: none;
+}
+
 .period-picker {
     display: flex;
     gap: 4px;
@@ -931,6 +961,33 @@ body {
     transition: color var(--color-transition);
 }
 
+/* Distance Listened's rows additionally carry a progress bar for how far
+   into the current unit you are — .distance-list li's flex row above still
+   applies unchanged to Before They Were Famous's simpler two-column rows. */
+.distance-list li.distance-row {
+    display: block;
+}
+
+.distance-row-top {
+    display: flex;
+    justify-content: space-between;
+}
+
+.distance-bar {
+    height: 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    margin-top: 8px;
+    overflow: hidden;
+}
+
+.distance-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: background var(--color-transition);
+}
+
 /* Festival poster */
 
 .festival-poster {
@@ -1016,19 +1073,49 @@ body {
     color: var(--fg-dim);
 }
 
-/* BPM pulse */
+/* BPM heart-rate monitor — a looping ECG-style trace, one blip scrolling by
+   per beat of the track's average BPM. Fixed "monitor green" rather than
+   the page's dynamic accent colour, since the whole point is reading as a
+   literal heart-rate monitor. .ecg-track's width and the -40px shift in
+   ecg-scroll must stay in sync with ECG_UNIT_WIDTH in app.js. */
 
-.bpm-pulse-dot {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    background: var(--accent);
-    margin: 14px auto;
-    animation: bpm-pulse 800ms ease-in-out infinite;
-    transition: background var(--color-transition);
+.ecg-monitor {
+    position: relative;
+    width: 100%;
+    height: 90px;
+    margin: 14px 0;
+    border-radius: 10px;
+    overflow: hidden;
+    background:
+        linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+        #0a100c;
+    background-size: 20px 20px, 20px 20px, 100% 100%;
+    border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-@keyframes bpm-pulse {
-    0%, 100% { transform: scale(1); opacity: 1; }
-    50% { transform: scale(1.7); opacity: 0.45; }
+.ecg-track {
+    height: 100%;
+    animation-name: ecg-scroll;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+}
+
+.ecg-track svg {
+    display: block;
+    height: 100%;
+}
+
+.ecg-trace {
+    fill: none;
+    stroke: #3dff88;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 4px rgba(61, 255, 136, 0.7));
+}
+
+@keyframes ecg-scroll {
+    from { transform: translateX(0); }
+    to   { transform: translateX(-40px); }
 }

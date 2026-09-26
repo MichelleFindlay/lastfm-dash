@@ -14,7 +14,9 @@ album art.
   track and on hover over any track row, so you don't have to leave the
   dashboard to find it yourself. Work as plain search links with zero setup;
   add free API credentials to upgrade to a verified direct link to the exact
-  track (see `config.sample.php` and `lib/ListenLinks.php`).
+  track (see `config.sample.php` and `lib/ListenLinks.php`). YouTube lookups
+  are capped at 100 per rolling 24 hours (`youtube_daily_limit`) to stay
+  clear of Google's free quota; excess lookups fall back to the search link.
 - **Dynamic theming** — the page background and accent colour are extracted
   live from the current album art and eased in smoothly, with the accent
   colour clamped to a safe contrast range so text always stays readable
@@ -23,7 +25,12 @@ album art.
   All Time / This Year / This Month / This Week / Today period picker,
   switched via AJAX. Computed as exact calendar periods (real Jan 1, real
   1st-of-month, real Monday) from the local library snapshot once it's
-  synced that far back — see "Local library sync" below.
+  synced that far back — see "Local library sync" below. Once covered,
+  Genre Breakdown scores every distinct artist scrobbled in that period
+  (not a capped sample) with no "Other" catch-all; optionally filtered down
+  to Spotify's own genre vocabulary if Spotify credentials are configured
+  (see "Genre verification" below), and a "Show: all / above 1% / 2% / 5%"
+  dropdown keeps a long genre list from making the page too tall.
 - **Lifetime Stats** — total scrobbles, unique artists/albums/tracks, average
   scrobbles per day, member-since date. Refreshes every 15 minutes.
 - **Insight widgets** — click-through popups built from real Last.fm (and,
@@ -33,17 +40,24 @@ album art.
     Last.fm doesn't expose that)
   - **Distance Listened** — your estimated total listening time, converted
     into flights, marathons, and (for heavy listeners) trips to the Moon or
-    Mars
+    Mars, each with a progress bar for how far into the current unit you
+    are (e.g. "~74 flights, 64% of the way to your 75th")
   - **If Your Year Were a Festival** — your top artists billed as a festival
     poster lineup
   - **Mood Weather** — a monthly emotional "forecast" derived from your top
     artists' community tags
   - **BPM Average** — your average tempo, sourced from Deezer's free API
-    since Last.fm has no tempo data of its own
+    since Last.fm has no tempo data of its own, shown as a scrolling
+    ECG-style heart-monitor trace timed to the real beat interval
   - **Before They Were Famous** — your favourite artists with the lowest
-    current global Last.fm listener counts
+    current global Last.fm listener counts, verified against Spotify's own
+    artist search when configured so soundtrack/compilation scrobbles
+    (where the "artist" is really an album or production title) don't show
+    up as false "finds"
   - **Obscurity Index** — the average/median global listener count across
-    your top artists
+    your top artists (shares Before They Were Famous's filtering-out of
+    multi-artist scrobble credits like "Artist A, Artist B & Artist C",
+    which Last.fm otherwise treats as one low-listener "artist")
 - **Self-update check** — the footer compares the installed version against
   the latest GitHub release and links to it when an update is available.
 
@@ -135,8 +149,35 @@ that period transparently falls back to a live Last.fm call instead — nothing
 breaks while backfill is still catching up, it's just not from the local
 copy yet.
 
+Genre Breakdown's local, uncapped view additionally needs Last.fm tags for
+every distinct artist involved, which is its own paced background job —
+`library_tag_backfill_per_run` (default 50/run), heaviest-played artists
+first — so that too fills in gradually rather than needing a lookup burst
+covering every artist you've ever scrobbled in one request.
+
 This runs automatically as part of `cron.php` (see "Background cache
 warming" above) — there's nothing extra to schedule.
+
+## Genre verification (optional)
+
+With Spotify credentials configured (see "Quick-listen links" above),
+Genre Breakdown filters Last.fm's community tags down to Spotify's own
+genre vocabulary before scoring them, so tags that are really artist names,
+list titles, or one-off scrobbler noise ("My Top Songs", "Upcoming Album
+2023") don't show up as if they were genres. A few common alternate
+spellings (Rnb/R&B, Dnb/Drum N Bass/Drum & Bass) are also collapsed onto
+one canonical entry.
+
+Spotify retired its live genre-list endpoint, so this vocabulary
+(`SPOTIFY_GENRE_SEEDS` in `lib/LastFm.php`) is a fixed, hardcoded list
+matching what Spotify used to expose — meaning it's honest but dated: a few
+genuinely common modern genre names (e.g. "pop punk", "screamo") aren't on
+it and get filtered out along with the real noise. If that's cutting too
+much for your taste, add the genre names you want recognized directly to
+that list.
+
+Without Spotify credentials configured, this filtering is skipped entirely
+and every Last.fm tag (past `GENRE_BLOCKLIST`) is used as before.
 
 ## License
 

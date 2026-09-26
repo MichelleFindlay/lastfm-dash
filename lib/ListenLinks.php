@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/Http.php';
+require_once __DIR__ . '/Spotify.php';
 
 /**
  * Quick-listen links for a track on Spotify and YouTube Music, so you don't
@@ -23,9 +24,13 @@ require_once __DIR__ . '/Http.php';
  * premium subscription required for the owner of the app").
  *
  * YouTube needs a free API key from https://console.cloud.google.com
- * (enable "YouTube Data API v3"). Its free quota is limited (100
- * units/day, and a search costs 100 units), so this is genuinely optional —
- * the search-link fallback is completely serviceable on its own.
+ * (enable "YouTube Data API v3"). Its free quota is limited (10,000
+ * units/day by default, and a search costs 100 units — ~100 searches/day),
+ * so this is genuinely optional — the search-link fallback is completely
+ * serviceable on its own. A local counter (youtube_daily_limit in
+ * config.php, default 100) caps how many live lookups are made in any
+ * 24-hour window, falling back to the search link once it's reached rather
+ * than risking the key getting rate-limited or suspended by Google.
  */
 class ListenLinks
 {
@@ -67,9 +72,8 @@ class ListenLinks
     {
         $searchFallback = 'https://open.spotify.com/search/' . rawurlencode($artist . ' ' . $track);
 
-        $clientId = $this->config['spotify_client_id'] ?? '';
-        $clientSecret = $this->config['spotify_client_secret'] ?? '';
-        if ($clientId === '' || $clientSecret === '') {
+        $spotify = new Spotify($this->config['spotify_client_id'] ?? '', $this->config['spotify_client_secret'] ?? '');
+        if (!$spotify->isConfigured()) {
             return ['url' => $searchFallback, 'verified' => false];
         }
 
@@ -81,50 +85,35 @@ class ListenLinks
                 : ['url' => $searchFallback, 'verified' => false];
         }
 
-        $url = null;
-        $token = $this->spotifyToken($clientId, $clientSecret);
-
-        if ($token !== null) {
-            $query = 'track:' . $track . ' artist:' . $artist;
-            $apiUrl = 'https://api.spotify.com/v1/search?type=track&limit=1&q=' . rawurlencode($query);
-            $response = Http::get($apiUrl, ['Authorization: Bearer ' . $token]);
-
-            if ($response !== null) {
-                $data = json_decode($response, true);
-                $url = $data['tracks']['items'][0]['external_urls']['spotify'] ?? null;
-            }
+        $token = $spotify->getToken();
+        if ($token === null) {
+            // Couldn't even authenticate — an infrastructure hiccup, not a
+            // genuine "no match". Don't cache it, so the next request tries
+            // fresh instead of being stuck on the search fallback for 30
+            // days over a transient failure.
+            return ['url' => $searchFallback, 'verified' => false];
         }
 
+        $query = 'track:' . $track . ' artist:' . $artist;
+        $apiUrl = 'https://api.spotify.com/v1/search?type=track&limit=1&q=' . rawurlencode($query);
+        $response = Http::get($apiUrl, ['Authorization: Bearer ' . $token]);
+
+        if ($response === null) {
+            // The request itself failed (network error, Spotify outage,
+            // etc.) — same reasoning as above.
+            return ['url' => $searchFallback, 'verified' => false];
+        }
+
+        $data = json_decode($response, true);
+        $url = $data['tracks']['items'][0]['external_urls']['spotify'] ?? null;
+
+        // Only reaching here means Spotify gave a real, complete answer —
+        // worth caching either way, including a genuine "no match".
         $this->writeCache($cacheKey, ['url' => $url]);
 
         return $url
             ? ['url' => $url, 'verified' => true]
             : ['url' => $searchFallback, 'verified' => false];
-    }
-
-    private function spotifyToken(string $clientId, string $clientSecret): ?string
-    {
-        $cached = $this->readCache('listen_spotify_token', 3300); // Spotify tokens last 3600s
-        if ($cached !== null) {
-            return $cached['token'] ?? null;
-        }
-
-        $response = Http::post(
-            'https://accounts.spotify.com/api/token',
-            ['grant_type' => 'client_credentials'],
-            ['Authorization: Basic ' . base64_encode($clientId . ':' . $clientSecret)]
-        );
-
-        if ($response === null) {
-            return null;
-        }
-
-        $data = json_decode($response, true);
-        $token = $data['access_token'] ?? null;
-
-        $this->writeCache('listen_spotify_token', ['token' => $token]);
-
-        return $token;
     }
 
     private function youtubeLink(string $artist, string $track): array
@@ -144,25 +133,73 @@ class ListenLinks
                 : ['url' => $searchFallback, 'verified' => false];
         }
 
+        // Quota-limited: fall back without touching the per-track cache, so
+        // this track gets a fresh real attempt once the window resets
+        // instead of being stuck "unverified" for 30 days over a temporary
+        // limit.
+        if (!$this->youtubeQuotaAvailable()) {
+            return ['url' => $searchFallback, 'verified' => false];
+        }
+
         $query = $artist . ' ' . $track . ' official audio';
         $apiUrl = 'https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=1&type=video&q='
             . rawurlencode($query) . '&key=' . rawurlencode($apiKey);
         $response = Http::get($apiUrl);
-        $url = null;
 
-        if ($response !== null) {
-            $data = json_decode($response, true);
-            $videoId = $data['items'][0]['id']['videoId'] ?? null;
-            if ($videoId) {
-                $url = 'https://music.youtube.com/watch?v=' . $videoId;
-            }
+        if ($response === null) {
+            // The request itself failed (network error, quota rejection,
+            // etc.) — not a genuine "no match". Don't cache it, so the next
+            // request tries fresh.
+            return ['url' => $searchFallback, 'verified' => false];
         }
 
+        $data = json_decode($response, true);
+        $videoId = $data['items'][0]['id']['videoId'] ?? null;
+        $url = $videoId ? ('https://music.youtube.com/watch?v=' . $videoId) : null;
+
+        // Only reaching here means YouTube gave a real, complete answer —
+        // worth caching either way, including a genuine "no match".
         $this->writeCache($cacheKey, ['url' => $url]);
 
         return $url
             ? ['url' => $url, 'verified' => true]
             : ['url' => $searchFallback, 'verified' => false];
+    }
+
+    /**
+     * Whether a live YouTube API call is still allowed in the current
+     * 24-hour window, incrementing the counter if so. A fixed window that
+     * restarts from zero 24 hours after its first call — not a true sliding
+     * window — which is a deliberate simplification: the goal is just
+     * staying comfortably clear of the daily quota, not perfectly even
+     * pacing.
+     */
+    private function youtubeQuotaAvailable(): bool
+    {
+        $limit = max(1, (int) ($this->config['youtube_daily_limit'] ?? 100));
+        $file = $this->cacheDir . '/youtube_quota.json';
+        $now = time();
+
+        $state = ['window_start' => $now, 'count' => 0];
+        if (is_file($file)) {
+            $existing = json_decode((string) file_get_contents($file), true);
+            if (is_array($existing) && isset($existing['window_start'], $existing['count'])) {
+                $state = $existing;
+            }
+        }
+
+        if ($now - $state['window_start'] >= 86400) {
+            $state = ['window_start' => $now, 'count' => 0];
+        }
+
+        if ($state['count'] >= $limit) {
+            return false;
+        }
+
+        $state['count']++;
+        @file_put_contents($file, json_encode($state));
+
+        return true;
     }
 
     private function readCache(string $key, int $ttl): ?array

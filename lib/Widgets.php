@@ -1,5 +1,8 @@
 <?php
 
+require_once __DIR__ . '/Http.php';
+require_once __DIR__ . '/Spotify.php';
+
 /**
  * Fun, derived "insight" widgets built on top of the LastFm API client.
  * Last.fm has no audio-feature (tempo/energy/mood) or celebrity-comparison
@@ -202,13 +205,20 @@ class Widgets
             ['label' => 'trips to Mars at its closest approach, by plane', 'unit_minutes' => 3640000, 'min_count' => 0.05],
         ];
 
+        // Each comparison is shown as a whole-unit count plus a progress bar
+        // for the fractional remainder — e.g. "12 marathons" and a bar 40%
+        // full means you're 40% of the way to your 13th — so it's obvious
+        // at a glance where you currently sit on every scale, not just the
+        // ones large enough to have a satisfying round number yet.
         $results = [];
         foreach ($comparisons as $c) {
-            $count = round($totalMinutes / $c['unit_minutes'], isset($c['min_count']) ? 2 : 1);
-            if (isset($c['min_count']) && $count < $c['min_count']) {
+            $raw = $totalMinutes / $c['unit_minutes'];
+            if (isset($c['min_count']) && $raw < $c['min_count']) {
                 continue;
             }
-            $results[] = ['label' => $c['label'], 'count' => $count];
+            $whole = (int) floor($raw);
+            $pct = (int) floor(($raw - $whole) * 100);
+            $results[] = ['label' => $c['label'], 'count' => $whole, 'pct' => $pct];
         }
 
         return [
@@ -458,7 +468,7 @@ class Widgets
         foreach ($artists as $a) {
             $name = $a['name'] ?? '';
             $yourPlays = (int) ($a['playcount'] ?? 0);
-            if ($name === '') {
+            if ($name === '' || self::looksLikeMultiArtistCredit($name)) {
                 continue;
             }
 
@@ -472,6 +482,22 @@ class Widgets
         }
 
         return $candidates;
+    }
+
+    /**
+     * Rough check for a multi-artist scrobble credit ("Artist A, Artist B &
+     * Artist C", "Artist A feat. Artist B") rather than a single named act
+     * — common on soundtrack/collaboration scrobbles, where Last.fm treats
+     * the whole credit string as one "artist" with its own listener count
+     * (usually tiny or zero, since it's not a real artist page), which would
+     * otherwise make it look falsely obscure/underground. Errs toward
+     * filtering: a handful of real acts with "&"/"," in their own name
+     * (Earth, Wind & Fire) get caught too, an acceptable trade-off for
+     * keeping this list free of scrobbler-generated credit soup.
+     */
+    private static function looksLikeMultiArtistCredit(string $name): bool
+    {
+        return (bool) preg_match('/,|&|\bfeat\.?\b|\bfeaturing\b|\bft\.?\b|\bvs\.?\b/i', $name);
     }
 
     /**
@@ -491,10 +517,74 @@ class Widgets
 
         usort($candidates, fn($a, $b) => $a['listeners'] <=> $b['listeners']);
 
+        // Last.fm's per-user "artist" is just whatever string a scrobble
+        // reported, which for soundtrack/compilation scrobbles is sometimes
+        // an album or production title, not a real performer (e.g. "Monster
+        // High the Movie") — those tend to have tiny/zero Last.fm listener
+        // counts too, so they'd otherwise show up as "impressively obscure"
+        // finds. Verifying against Spotify's own artist search filters those
+        // out; skipped entirely (nothing filtered) when Spotify credentials
+        // aren't configured, same as the quick-listen links elsewhere.
+        $spotify = new Spotify($this->config['spotify_client_id'] ?? '', $this->config['spotify_client_secret'] ?? '');
+        if ($spotify->isConfigured()) {
+            $verified = [];
+            foreach ($candidates as $c) {
+                if ($this->spotifyVerifiesArtist($spotify, $c['name'])) {
+                    $verified[] = $c;
+                    if (count($verified) >= 6) {
+                        break;
+                    }
+                }
+            }
+            $candidates = $verified;
+        }
+
+        if (empty($candidates)) {
+            return ['available' => false];
+        }
+
         return [
             'available' => true,
             'artists'   => array_slice($candidates, 0, 6),
         ];
+    }
+
+    /**
+     * Whether $name resolves to a real Spotify artist, cached for 30 days
+     * per name since that's essentially permanent. Infrastructure failures
+     * (no token, request error) return true rather than false, so a
+     * temporary Spotify hiccup doesn't wrongly exclude a genuine artist —
+     * only a completed search that found no matching artist counts as
+     * "not verified".
+     */
+    private function spotifyVerifiesArtist(Spotify $spotify, string $name): bool
+    {
+        $cacheFile = __DIR__ . '/../cache/spotify_artist_' . md5(strtolower($name)) . '.json';
+        if (is_file($cacheFile) && (time() - filemtime($cacheFile)) < 2592000) {
+            $cached = json_decode((string) file_get_contents($cacheFile), true);
+            if (is_array($cached) && isset($cached['verified'])) {
+                return $cached['verified'];
+            }
+        }
+
+        $token = $spotify->getToken();
+        if ($token === null) {
+            return true;
+        }
+
+        $apiUrl = 'https://api.spotify.com/v1/search?type=artist&limit=1&q=' . rawurlencode($name);
+        $response = Http::get($apiUrl, ['Authorization: Bearer ' . $token]);
+        if ($response === null) {
+            return true;
+        }
+
+        $data = json_decode($response, true);
+        $foundName = $data['artists']['items'][0]['name'] ?? null;
+        $verified = $foundName !== null && strcasecmp(trim($foundName), trim($name)) === 0;
+
+        @file_put_contents($cacheFile, json_encode(['verified' => $verified]));
+
+        return $verified;
     }
 
     /**

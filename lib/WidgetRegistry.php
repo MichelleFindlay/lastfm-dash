@@ -43,9 +43,10 @@ class WidgetRegistry
                 $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
                 $artistLimit = (int) ($config['genre_artist_limit'] ?? 20);
                 $genreLimit = (int) ($config['genre_limit'] ?? 8);
+                $spotifyAvailable = !empty($config['spotify_client_id']) && !empty($config['spotify_client_secret']);
 
-                $genres = $library->genresForUiPeriod($period, $artistLimit, $genreLimit, $tz)
-                    ?? $lastfm->getGenresForUiPeriod($period, $artistLimit, $genreLimit, $tz);
+                $genres = $library->genresForUiPeriod($period, $tz, $spotifyAvailable)
+                    ?? $lastfm->getGenresForUiPeriod($period, $artistLimit, $genreLimit, $tz, $spotifyAvailable);
 
                 return ['available' => !empty($genres), 'period' => $period, 'genres' => $genres];
             },
