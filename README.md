@@ -60,6 +60,11 @@ album art.
     which Last.fm otherwise treats as one low-listener "artist")
 - **Self-update check** — the footer compares the installed version against
   the latest GitHub release and links to it when an update is available.
+- **MCP server** (optional) — lets an AI client (Claude, ChatGPT/OpenAI, or
+  anything else speaking MCP) query this account's data directly: full
+  listening history with real dates/times, top artists/tracks/genres for
+  any period, currently/previously playing, and every insight widget. See
+  "MCP server" below.
 
 ## Requirements
 
@@ -178,6 +183,125 @@ that list.
 
 Without Spotify credentials configured, this filtering is skipped entirely
 and every Last.fm tag (past `GENRE_BLOCKLIST`) is used as before.
+
+## MCP server (optional)
+
+`mcp.php` exposes this account's data as tools an MCP-compatible AI client
+can call — MCP (Model Context Protocol) is a shared, model-agnostic
+standard, so the same endpoint works for Claude, ChatGPT/OpenAI, or any
+other client speaking it. Read-only: every tool just reads existing data,
+nothing here can modify anything.
+
+**Setup:** set `mcp_api_key` in `config.php` to a long random secret (it's
+blank by default, which disables the endpoint entirely — every request
+404s until you set one; [generate one here](https://nexty.dev/tools/cron-secret-generator)
+if you want a quick random value). Treat it like a password: don't paste
+it into a chat, commit it, or share it — anyone with it can read your full
+listening history through this endpoint.
+
+**Tools available:**
+
+| Tool | What it returns |
+|---|---|
+| `get_now_playing` | Currently/most recently played track, plus the one before it |
+| `list_scrobbles` | Individual listening history — artist, track, exact date/time — with `since`/`until`/`limit` |
+| `top_artists` / `top_tracks` | Ranked by play count for a period (`all_time`/`this_year`/`this_month`/`this_week`/`today`) |
+| `genre_breakdown` | Genre percentages for a period, optionally Spotify-verified |
+| `lifetime_stats` | Scrobble/artist/album/track totals, average per day, member since |
+| `widget_*` | One tool per insight widget (`widget_listening_clock`, `widget_distance`, `widget_bpm`, `widget_before_famous`, etc.) |
+
+`list_scrobbles`, `top_artists`, and `top_tracks` read from the local
+library snapshot (see "Local library sync" above) when it covers the
+requested range, honestly reporting `"available": false` with the current
+backfill coverage if it doesn't yet — they never fall back to fabricated
+or incomplete-looking data. `top_artists`/`top_tracks`/`genre_breakdown`
+fall back to a live Last.fm call for the 5 named periods when local
+history isn't there yet; `list_scrobbles` has no live equivalent for
+arbitrary date ranges, so it just reports what's not covered.
+
+Implements the request/response subset of MCP's Streamable HTTP transport
+(`initialize`, `tools/list`, `tools/call` over a single POST, replying with
+plain JSON) — not the optional SSE push stream, which a read-only tool
+server like this one never needs to send anyway.
+
+**Connecting a client** — every client needs the same two things: this
+app's `mcp.php` URL, and your `mcp_api_key` sent as
+`Authorization: Bearer <your mcp_api_key>` on every request.
+
+### The Claude app (claude.ai web, Desktop, or mobile)
+
+A connector is added to your account once via claude.ai on the web or the
+Desktop app — it then shows up automatically everywhere you're signed in,
+mobile included, with nothing extra to set up on each device.
+
+1. Go to **Settings → Connectors → Add custom connector** (on Desktop:
+   **Settings → Connectors**; the dialog is identical either way).
+2. **Name:** anything you like, e.g. `lastfm`.
+3. **URL:** your `mcp.php` address, e.g. `https://yourdomain.com/mcp.php`.
+4. Under **Authentication**, choose **No sign-in** — pick this option even
+   though Claude may show a yellow "sign-in detected" warning first; that
+   warning just means the server correctly rejects unauthenticated
+   requests, not that it needs OAuth. The warning's own text confirms
+   this: *"If the server uses an API key instead of OAuth, add it under
+   Request headers below."*
+5. Under **Request headers**, click **Add header** and fill in:
+   - **Header name:** `Authorization`
+   - **Value:** `Bearer YOUR_MCP_API_KEY` — the literal word `Bearer`, a
+     space, then your key. The key by itself will not authenticate.
+   - Leave **Required** checked.
+6. Click **Add** to save.
+
+If you don't see a **Request headers** section in the dialog, your account
+doesn't have that feature yet (it's newer and rolling out gradually) — use
+Claude Code below instead in the meantime, since Desktop's older
+OAuth-only connector flow has no way to send a custom API key at all.
+
+### Claude Code
+
+```sh
+claude mcp add --transport http lastfm-dash https://yourdomain.com/mcp.php \
+  --header "Authorization: Bearer YOUR_MCP_API_KEY"
+```
+
+Verify with `claude mcp list`.
+
+### OpenAI (API)
+
+The Responses API takes an `mcp`-type tool with a `headers` field for exactly
+this kind of static-key auth — pass this in the `tools` array of your request:
+
+```json
+{
+  "type": "mcp",
+  "server_label": "lastfm",
+  "server_url": "https://yourdomain.com/mcp.php",
+  "headers": { "Authorization": "Bearer YOUR_MCP_API_KEY" },
+  "require_approval": "never"
+}
+```
+
+`require_approval: "never"` skips OpenAI's per-call confirmation prompt,
+reasonable here since every tool is read-only. Headers are sent fresh with
+every request rather than stored, so there's nothing to re-enter later if
+you rotate the key — just update it in your own request code.
+
+### ChatGPT app
+
+ChatGPT's own custom-connector UI (**Settings → Connectors → Advanced →
+Developer mode**, then **Create**) currently only offers **OAuth** or **No
+authentication** for a custom MCP server — there's no field for a static
+API key/Bearer header the way the API and Claude both support. Since
+setting "No authentication" would mean anyone with the URL can read your
+listening history, don't use that option here; the OpenAI API method
+above is the working path for OpenAI until the ChatGPT app supports custom
+headers. (Developer mode itself also needs a paid plan — Plus, Pro,
+Business, Enterprise, or Edu; not available on Free.)
+
+### Any other MCP client
+
+The same URL, header name (`Authorization`), and value
+(`Bearer YOUR_MCP_API_KEY`) work identically anywhere that lets you set a
+custom request header — MCP's HTTP transport isn't tied to any one vendor.
 
 ## License
 
