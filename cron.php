@@ -8,6 +8,14 @@
  * cache miss — see lib/Widgets.php — and Genre Breakdown makes one
  * artist.gettoptags call per top artist, per period).
  *
+ * Also grows a local, compressed copy of your full scrobble history (see
+ * lib/LibrarySync.php) a bounded batch at a time, so Favourite Tracks /
+ * Trending / Genre Breakdown can eventually be computed for every period
+ * from that local file — with exact calendar boundaries instead of Last.fm's
+ * approximate rolling windows — rather than a live call on every request. A
+ * large library can take many runs to fully backfill; that's the point:
+ * each run does a small, fixed amount of work instead of one huge one.
+ *
  * Run this every 15 minutes, matching the cache TTL used in widgets.php and
  * LastFm::getInfo(). Two ways to schedule it (crontab syntax: minute 0,15,
  * 30,45 of every hour — equivalent to the more common "star-slash-15" form,
@@ -37,6 +45,7 @@ require __DIR__ . '/lib/LastFm.php';
 require __DIR__ . '/lib/Widgets.php';
 require __DIR__ . '/lib/WidgetCache.php';
 require __DIR__ . '/lib/WidgetRegistry.php';
+require __DIR__ . '/lib/LibrarySync.php';
 
 $isCli = PHP_SAPI === 'cli';
 
@@ -72,10 +81,29 @@ if (!$isCli) {
 
 $lastfm = new LastFm($config['api_key'], $config['username'], (int) ($config['cache_ttl'] ?? 60));
 $widgets = new Widgets($lastfm, $config);
-$handlers = WidgetRegistry::handlers($lastfm, $widgets, $config);
+$library = new LibrarySync($lastfm, $config['username']);
+$handlers = WidgetRegistry::handlers($lastfm, $widgets, $config, $library);
 
 $refreshed = [];
 $failed = [];
+
+// Local library sync — catch up on new scrobbles first (cheap), then spend
+// a bounded amount of work continuing the historical backfill (expensive
+// only in aggregate, across many runs).
+try {
+    $library->syncRecent();
+    $refreshed[] = 'library_sync';
+} catch (Throwable $e) {
+    $failed[] = 'library_sync';
+}
+
+try {
+    $pagesPerRun = max(1, (int) ($config['library_backfill_pages_per_run'] ?? 20));
+    $backfill = $library->backfillBatch($pagesPerRun);
+    $refreshed[] = 'library_backfill';
+} catch (Throwable $e) {
+    $failed[] = 'library_backfill';
+}
 
 foreach (WidgetRegistry::SIMPLE_IDS as $id) {
     try {
@@ -117,5 +145,11 @@ $summary = sprintf(
     count($refreshed) + count($failed),
     $failed ? 'failed: ' . implode(', ', $failed) : 'all ok'
 );
+
+if (isset($backfill)) {
+    $summary .= $backfill['complete']
+        ? ' — library backfill complete'
+        : sprintf(' — library backfill: +%d pages, +%d scrobbles this run', $backfill['pages'], $backfill['scrobbles']);
+}
 
 respond($summary, $failed ? 500 : 200);

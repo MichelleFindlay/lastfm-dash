@@ -8,7 +8,8 @@ album art.
 ## Features
 
 - **Now Playing** — live "now scrobbling" / last-played track, polled every
-  few seconds, with separate track and album artwork tiles (they can differ).
+  few seconds, with a "previously played" card alongside it showing the
+  track before it.
 - **Quick-listen links** — Spotify and YouTube Music links on the current
   track and on hover over any track row, so you don't have to leave the
   dashboard to find it yourself. Work as plain search links with zero setup;
@@ -19,7 +20,10 @@ album art.
   colour clamped to a safe contrast range so text always stays readable
   regardless of the source image.
 - **Favourite Tracks**, **Trending**, and **Genre Breakdown** — each with an
-  All Time / This Year / This Month / Today period picker, switched via AJAX.
+  All Time / This Year / This Month / This Week / Today period picker,
+  switched via AJAX. Computed as exact calendar periods (real Jan 1, real
+  1st-of-month, real Monday) from the local library snapshot once it's
+  synced that far back — see "Local library sync" below.
 - **Lifetime Stats** — total scrobbles, unique artists/albums/tracks, average
   scrobbles per day, member-since date. Refreshes every 15 minutes.
 - **Insight widgets** — click-through popups built from real Last.fm (and,
@@ -51,7 +55,9 @@ album art.
 - No database required — all caching is flat-file, under `cache/`
 
 The `curl` extension is used when available, with an automatic
-`allow_url_fopen` fallback if it isn't (see `lib/Http.php`).
+`allow_url_fopen` fallback if it isn't (see `lib/Http.php`). The `zlib`
+extension (bundled by default in almost every PHP build) is used to
+compress the local library snapshot described below.
 
 ## Setup
 
@@ -109,6 +115,28 @@ footer note confirming background refresh is active. If you set
 `'cron_secret'`, it's required as a `?token=` query param for HTTP-triggered
 runs (CLI runs are always allowed) — worth setting if this URL is easily
 guessable and you'd rather not have random hits trigger an expensive run.
+
+## Local library sync (optional but recommended)
+
+`cron.php` also grows a local, gzip-compressed copy of your full scrobble
+history (artist + track + timestamp per scrobble) under `cache/`, so
+Favourite Tracks, Trending, and Genre Breakdown can be computed straight
+from that file for every period — with exact calendar boundaries instead
+of Last.fm's approximate rolling windows, and with zero live API calls once
+a given period is covered.
+
+A large library can take a while to backfill in full: each cron run only
+pulls a bounded batch (`library_backfill_pages_per_run` in `config.php`,
+200 scrobbles per page, default 20 pages/run) rather than downloading
+everything in one huge, rate-limit-risking request. New scrobbles since the
+last run are always picked up cheaply on every run regardless of backfill
+progress. Until a period's start date falls inside what's been backfilled,
+that period transparently falls back to a live Last.fm call instead — nothing
+breaks while backfill is still catching up, it's just not from the local
+copy yet.
+
+This runs automatically as part of `cron.php` (see "Background cache
+warming" above) — there's nothing extra to schedule.
 
 ## License
 

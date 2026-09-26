@@ -27,7 +27,7 @@ class WidgetRegistry
         'obscurity',
     ];
 
-    public static function handlers(LastFm $lastfm, Widgets $widgets, array $config): array
+    public static function handlers(LastFm $lastfm, Widgets $widgets, array $config, LibrarySync $library): array
     {
         return [
             'listening_clock' => fn() => $widgets->listeningClock(),
@@ -38,26 +38,25 @@ class WidgetRegistry
             'bpm'             => fn() => $widgets->bpmPulse(),
             'before_famous'   => fn() => $widgets->beforeFamous(),
             'obscurity'       => fn() => $widgets->obscurityIndex(),
-            'genre'           => function () use ($lastfm, $config) {
+            'genre'           => function () use ($lastfm, $library, $config) {
                 $period = LastFm::validUiPeriod($_GET['period'] ?? '');
                 $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
+                $artistLimit = (int) ($config['genre_artist_limit'] ?? 20);
+                $genreLimit = (int) ($config['genre_limit'] ?? 8);
 
-                $genres = $lastfm->getGenresForUiPeriod(
-                    $period,
-                    (int) ($config['genre_artist_limit'] ?? 20),
-                    (int) ($config['genre_limit'] ?? 8),
-                    $tz
-                );
+                $genres = $library->genresForUiPeriod($period, $artistLimit, $genreLimit, $tz)
+                    ?? $lastfm->getGenresForUiPeriod($period, $artistLimit, $genreLimit, $tz);
 
                 return ['available' => !empty($genres), 'period' => $period, 'genres' => $genres];
             },
-            'tracks' => function () use ($lastfm, $config) {
+            'tracks' => function () use ($lastfm, $library, $config) {
                 $period = LastFm::validUiPeriod($_GET['period'] ?? '');
                 $panel = ($_GET['panel'] ?? '') === 'trending' ? 'trending' : 'favourites';
                 $limit = (int) ($panel === 'trending' ? ($config['trend_limit'] ?? 8) : ($config['top_limit'] ?? 8));
                 $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
 
-                $tracks = $lastfm->getTracksForUiPeriod($period, $limit, $tz);
+                $tracks = $library->tracksForPeriod($period, $limit, $tz)
+                    ?? $lastfm->getTracksForUiPeriod($period, $limit, $tz);
                 $maxPlaycount = max(array_map(fn($t) => (int) ($t['playcount'] ?? 0), $tracks ?: [['playcount' => 1]]));
 
                 $items = [];

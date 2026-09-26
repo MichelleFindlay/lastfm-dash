@@ -46,12 +46,21 @@ return [
     'bpm_track_limit'       => 50,    // top tracks sampled for BPM lookup (2 Deezer calls each — Last.fm has no tempo data)
     'obscure_artist_sample' => 200,   // top artists sampled for "Before They Were Famous" / Obscurity Index (each costs an extra Last.fm call, cached a week)
 
+    // How many pages of scrobble history (200/page) cron.php pulls per run
+    // while building the local library snapshot (see "Local library sync"
+    // in cron.php and lib/LibrarySync.php) — a large library backfills over
+    // many runs rather than one huge one. Once a period is fully backfilled
+    // locally, it's served from this file instead of a live Last.fm call.
+    'library_backfill_pages_per_run' => 20,
+
     // Which timeframe each period-picker panel shows on page load. Visitors
     // can still switch it themselves — this only sets the initial view.
     // Valid values: all_time | this_year | this_month | this_week | today
-    // ("this_year"/"this_month"/"this_week" are Last.fm's own rolling
-    // windows, not calendar periods; "today" is computed from your actual
-    // same-day scrobbles.)
+    // (Computed as exact calendar periods — real Jan 1, real 1st-of-month,
+    // real Monday — from the local library snapshot once it's backfilled
+    // that far back; until then, falls back to Last.fm's own approximate
+    // rolling-window data for that period. "today" always comes from your
+    // actual same-day scrobbles, one way or the other.)
     'favourites_default_period' => 'all_time',
     'trending_default_period'   => 'today',
     'genre_default_period'      => 'all_time',

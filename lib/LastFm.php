@@ -476,7 +476,7 @@ class LastFm
      * @param array<string, int> $artistPlaycounts artist name => weight (playcount or scrobble count)
      * @return array<string, int> tag name => aggregated score
      */
-    private function scoreGenreTags(array $artistPlaycounts): array
+    public function scoreGenreTags(array $artistPlaycounts): array
     {
         $scores = [];
 
@@ -507,7 +507,7 @@ class LastFm
         return $scores;
     }
 
-    private function genresFromScores(array $scores, int $genreLimit): array
+    public static function genresFromScores(array $scores, int $genreLimit): array
     {
         arsort($scores);
         $total = array_sum($scores);
