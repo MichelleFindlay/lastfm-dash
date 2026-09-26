@@ -244,7 +244,7 @@ class LibrarySync
     /**
      * @return array<int, array{name:string, artist:array{name:string}, playcount:int, image:array}>|null
      */
-    private function topTracks(int $sinceUnix, int $limit): ?array
+    public function topTracks(int $sinceUnix, int $limit, ?int $untilUnix = null): ?array
     {
         $state = $this->load();
         if (!$this->covers($state, $sinceUnix)) {
@@ -253,7 +253,7 @@ class LibrarySync
 
         $counts = [];
         foreach ($state['scrobbles'] as [$artist, $name, $ts]) {
-            if ($ts < $sinceUnix) {
+            if ($ts < $sinceUnix || ($untilUnix !== null && $ts > $untilUnix)) {
                 continue;
             }
 
@@ -272,7 +272,7 @@ class LibrarySync
     /**
      * @return array<string, int>|null artist name => playcount, descending
      */
-    private function topArtistPlaycounts(int $sinceUnix): ?array
+    public function topArtistPlaycounts(int $sinceUnix, ?int $untilUnix = null): ?array
     {
         $state = $this->load();
         if (!$this->covers($state, $sinceUnix)) {
@@ -281,7 +281,7 @@ class LibrarySync
 
         $counts = [];
         foreach ($state['scrobbles'] as [$artist, $name, $ts]) {
-            if ($ts < $sinceUnix) {
+            if ($ts < $sinceUnix || ($untilUnix !== null && $ts > $untilUnix)) {
                 continue;
             }
             $counts[$artist] = ($counts[$artist] ?? 0) + 1;
@@ -290,6 +290,52 @@ class LibrarySync
         arsort($counts);
 
         return $counts;
+    }
+
+    /**
+     * Individual scrobbles (artist, track, exact timestamp) within
+     * [$sinceUnix, $untilUnix], newest first — the raw data behind every
+     * other query method here, for callers (the MCP server) that want
+     * arbitrary date/time-level detail rather than a period aggregate. Null
+     * if the snapshot doesn't reach back to $sinceUnix yet.
+     *
+     * @return array<int, array{artist:string, track:string, timestamp:int}>|null
+     */
+    public function rawScrobbles(int $sinceUnix, ?int $untilUnix, int $limit): ?array
+    {
+        $state = $this->load();
+        if (!$this->covers($state, $sinceUnix)) {
+            return null;
+        }
+
+        $matches = [];
+        foreach ($state['scrobbles'] as [$artist, $name, $ts]) {
+            if ($ts < $sinceUnix || ($untilUnix !== null && $ts > $untilUnix)) {
+                continue;
+            }
+            $matches[] = ['artist' => $artist, 'track' => $name, 'timestamp' => $ts];
+        }
+
+        usort($matches, fn($a, $b) => $b['timestamp'] <=> $a['timestamp']);
+
+        return array_slice($matches, 0, max(1, $limit));
+    }
+
+    /**
+     * Snapshot status — how far back local history reaches and whether
+     * it's fully caught up — so a caller can honestly report why a query
+     * came back empty or unavailable rather than silently doing so.
+     */
+    public function coverage(): array
+    {
+        $state = $this->load();
+
+        return [
+            'backfill_complete' => $state['backfill_complete'],
+            'backfill_before'   => $state['backfill_before'],
+            'synced_through'    => $state['synced_through'],
+            'scrobble_count'    => count($state['scrobbles']),
+        ];
     }
 
     /**

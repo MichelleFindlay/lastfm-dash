@@ -77,6 +77,8 @@ return [
     // Set cron_enabled to true once you've actually scheduled it (shown as
     // a small footer note); cron_secret, if set, is required as a ?token=
     // query param for HTTP-triggered runs of cron.php (not for CLI runs).
+    // 
+    // You can generate a random seed for the cron secret here - https://nexty.dev/tools/cron-secret-generator
     'cron_enabled' => false,
     'cron_secret'  => '',
 
@@ -107,6 +109,20 @@ return [
     'spotify_client_secret' => '',
     'youtube_api_key'       => '',
     'youtube_daily_limit'   => 99,   // max live YouTube API calls per rolling 24h window; excess lookups fall back to the search link
+
+    // MCP (Model Context Protocol) server at mcp.php — lets an AI client
+    // (Claude, ChatGPT/OpenAI, or anything else speaking MCP) query this
+    // account's full listening history, artists, tracks, genres, and
+    // widgets as tools, including exact scrobble dates/times. Read-only,
+    // but it's still your real listening data behind a single static key,
+    // so keep it secret the same way you would an API key. Leave blank
+    // (the default) to disable the endpoint entirely — it 404s until set.
+    // Point your MCP client at this app's mcp.php URL with an
+    // "Authorization: Bearer <this value>" header. See README.md.
+    // "Authorization: Bearer <this value>" header. See README.md.
+    // 
+    // You can generate a random bearer token for the MCP here - https://nexty.dev/tools/cron-secret-generator
+    'mcp_api_key' => '',
 
     // Footer "update available" check: compares the app's own version (the
     // VERSION file at the project root — not this config) against the

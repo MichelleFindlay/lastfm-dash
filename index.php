@@ -109,6 +109,7 @@ $config += [
     'spotify_client_secret' => '',
     'youtube_api_key'       => '',
     'youtube_daily_limit'   => 100,
+    'mcp_api_key'           => '',
 ];
 
 $needsSetup = $configMissing
