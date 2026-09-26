@@ -23,7 +23,12 @@ album art.
   All Time / This Year / This Month / This Week / Today period picker,
   switched via AJAX. Computed as exact calendar periods (real Jan 1, real
   1st-of-month, real Monday) from the local library snapshot once it's
-  synced that far back — see "Local library sync" below.
+  synced that far back — see "Local library sync" below. Once covered,
+  Genre Breakdown scores every distinct artist scrobbled in that period
+  (not a capped sample) with no "Other" catch-all; optionally filtered down
+  to Spotify's own genre vocabulary if Spotify credentials are configured
+  (see "Genre verification" below), and a "Show: all / above 1% / 2% / 5%"
+  dropdown keeps a long genre list from making the page too tall.
 - **Lifetime Stats** — total scrobbles, unique artists/albums/tracks, average
   scrobbles per day, member-since date. Refreshes every 15 minutes.
 - **Insight widgets** — click-through popups built from real Last.fm (and,
@@ -33,15 +38,20 @@ album art.
     Last.fm doesn't expose that)
   - **Distance Listened** — your estimated total listening time, converted
     into flights, marathons, and (for heavy listeners) trips to the Moon or
-    Mars
+    Mars, each with a progress bar for how far into the current unit you
+    are (e.g. "~74 flights, 64% of the way to your 75th")
   - **If Your Year Were a Festival** — your top artists billed as a festival
     poster lineup
   - **Mood Weather** — a monthly emotional "forecast" derived from your top
     artists' community tags
   - **BPM Average** — your average tempo, sourced from Deezer's free API
-    since Last.fm has no tempo data of its own
+    since Last.fm has no tempo data of its own, shown as a scrolling
+    ECG-style heart-monitor trace timed to the real beat interval
   - **Before They Were Famous** — your favourite artists with the lowest
-    current global Last.fm listener counts
+    current global Last.fm listener counts, verified against Spotify's own
+    artist search when configured so soundtrack/compilation scrobbles
+    (where the "artist" is really an album or production title) don't show
+    up as false "finds"
   - **Obscurity Index** — the average/median global listener count across
     your top artists
 - **Self-update check** — the footer compares the installed version against
