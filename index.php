@@ -87,6 +87,7 @@ $config += [
     'bpm_track_limit'       => 50,
     'obscure_artist_sample' => 200,
     'library_backfill_pages_per_run' => 20,
+    'library_tag_backfill_per_run'   => 50,
 
     // Which timeframe each period-picker panel shows on page load:
     // all_time | this_year | this_month | this_week | today
@@ -107,6 +108,7 @@ $config += [
     'spotify_client_id'     => '',
     'spotify_client_secret' => '',
     'youtube_api_key'       => '',
+    'youtube_daily_limit'   => 100,
 ];
 
 $needsSetup = $configMissing
@@ -167,23 +169,21 @@ if (!$needsSetup) {
     $activeGenrePeriod      = LastFm::validUiPeriod($config['genre_default_period'] ?? 'all_time', 'all_time');
 
     $library = new LibrarySync($lastfm, $config['username']);
+    $spotifyAvailable = !empty($config['spotify_client_id']) && !empty($config['spotify_client_secret']);
 
     $topTracks = $library->tracksForPeriod($activeFavouritesPeriod, (int) $config['top_limit'], $tz)
         ?? $lastfm->getTracksForUiPeriod($activeFavouritesPeriod, (int) $config['top_limit'], $tz);
     $trending = $library->tracksForPeriod($activeTrendingPeriod, (int) $config['trend_limit'], $tz)
         ?? $lastfm->getTracksForUiPeriod($activeTrendingPeriod, (int) $config['trend_limit'], $tz);
 
-    $genres = $library->genresForUiPeriod(
-        $activeGenrePeriod,
-        (int) $config['genre_artist_limit'],
-        (int) $config['genre_limit'],
-        $tz
-    ) ?? $lastfm->getGenresForUiPeriod(
-        $activeGenrePeriod,
-        (int) $config['genre_artist_limit'],
-        (int) $config['genre_limit'],
-        $tz
-    );
+    $genres = $library->genresForUiPeriod($activeGenrePeriod, $tz, $spotifyAvailable)
+        ?? $lastfm->getGenresForUiPeriod(
+            $activeGenrePeriod,
+            (int) $config['genre_artist_limit'],
+            (int) $config['genre_limit'],
+            $tz,
+            $spotifyAvailable
+        );
 
     $statsMap = LastFm::formatLifetimeStats($lastfm->getInfo());
     if ($statsMap) {
@@ -393,7 +393,18 @@ if (!empty($config['github_repo'])) {
         <div class="panel-header-row">
             <h2>Genre Breakdown</h2>
             <?php if (!$needsSetup): ?>
-                <?php renderPeriodPicker('genre', $activeGenrePeriod, $uiPeriodLabels); ?>
+                <div class="genre-controls">
+                    <?php renderPeriodPicker('genre', $activeGenrePeriod, $uiPeriodLabels); ?>
+                    <label class="genre-threshold-label">
+                        Show
+                        <select data-genre-threshold>
+                            <option value="0">all genres</option>
+                            <option value="1" selected>above 1%</option>
+                            <option value="2">above 2%</option>
+                            <option value="5">above 5%</option>
+                        </select>
+                    </label>
+                </div>
             <?php endif; ?>
         </div>
         <div data-period-content="genre">
@@ -412,7 +423,7 @@ if (!empty($config['github_repo'])) {
                     <?php foreach ($genres as $i => $g):
                         $color = $g['name'] === 'Other' ? 'rgba(255,255,255,0.15)' : 'hsl(' . fmod($i * 137.508, 360) . ', 65%, 55%)';
                     ?>
-                        <li class="genre-legend-item">
+                        <li class="genre-legend-item" data-pct="<?= $g['pct'] ?>">
                             <span class="genre-swatch" style="background: <?= $color ?>"></span>
                             <span class="genre-name"><?= e($g['name']) ?></span>
                             <span class="genre-pct"><?= $g['pct'] ?>%</span>

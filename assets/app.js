@@ -545,10 +545,22 @@
         var list = el("ul", "distance-list");
         data.comparisons.forEach(function (c) {
             var li = document.createElement("li");
-            var count = el("span", "distance-count", "~" + c.count.toLocaleString());
-            var label = el("span", null, " " + c.label);
-            li.appendChild(count);
-            li.appendChild(label);
+            li.className = "distance-row";
+
+            var top = el("div", "distance-row-top");
+            var left = document.createElement("span");
+            left.appendChild(el("span", "distance-count", "~" + c.count.toLocaleString()));
+            left.appendChild(document.createTextNode(" " + c.label));
+            top.appendChild(left);
+            top.appendChild(el("span", null, c.pct + "%"));
+            li.appendChild(top);
+
+            var bar = el("div", "distance-bar");
+            var fill = el("div", "distance-bar-fill");
+            fill.style.width = c.pct + "%";
+            bar.appendChild(fill);
+            li.appendChild(bar);
+
             list.appendChild(li);
         });
         modalBody.appendChild(list);
@@ -602,13 +614,66 @@
         modalBody.appendChild(el("div", "widget-subtext", summary + " — derived from your top artists' community tags."));
     }
 
+    // One heartbeat "blip" (P bump, QRS spike, T bump), baseline at y=45,
+    // drawn left-to-right within a 40-wide unit cell so units can repeat
+    // edge to edge with no visible seam. ECG_UNIT_WIDTH must stay in sync
+    // with the -40px shift in style.css's ecg-scroll keyframes.
+    var ECG_UNIT_WIDTH = 40;
+    var ECG_UNIT_HEIGHT = 90;
+    var ECG_UNIT_POINTS = [
+        [0, 45], [10, 45], [13, 40], [16, 45], [18, 45],
+        [19, 50], [21, 8], [23, 60], [25, 45], [28, 45],
+        [32, 34], [36, 45], [40, 45]
+    ];
+
+    function buildEcgPoints(units) {
+        var pts = [];
+        for (var u = 0; u < units; u++) {
+            var offset = u * ECG_UNIT_WIDTH;
+            ECG_UNIT_POINTS.forEach(function (p, idx) {
+                if (u > 0 && idx === 0) return; // shared join point with the previous unit
+                pts.push((p[0] + offset) + "," + p[1]);
+            });
+        }
+        return pts.join(" ");
+    }
+
+    /**
+     * A looping ECG-style trace, one beat-shape scrolling through per
+     * 60/bpm seconds — the same real average-BPM figure as the headline
+     * above, just shown as a classic heart-monitor sweep. Drawn many units
+     * wide (well beyond any realistic modal width) so the CSS animation's
+     * fixed one-unit translateX loops seamlessly regardless of how many
+     * units actually fit in view.
+     */
+    function buildEcgMonitor(bpm) {
+        var svgNS = "http://www.w3.org/2000/svg";
+        var units = 12;
+        var width = units * ECG_UNIT_WIDTH;
+
+        var monitor = el("div", "ecg-monitor");
+        var track = el("div", "ecg-track");
+        track.style.width = width + "px";
+        track.style.animationDuration = Math.max(200, Math.round(60000 / bpm)) + "ms";
+
+        var svg = document.createElementNS(svgNS, "svg");
+        svg.setAttribute("width", width);
+        svg.setAttribute("height", ECG_UNIT_HEIGHT);
+        svg.setAttribute("viewBox", "0 0 " + width + " " + ECG_UNIT_HEIGHT);
+
+        var polyline = document.createElementNS(svgNS, "polyline");
+        polyline.setAttribute("points", buildEcgPoints(units));
+        polyline.setAttribute("class", "ecg-trace");
+        svg.appendChild(polyline);
+
+        track.appendChild(svg);
+        monitor.appendChild(track);
+        return monitor;
+    }
+
     function renderBpm(data) {
         modalBody.appendChild(el("div", "widget-headline", data.avg_bpm + " BPM"));
-
-        var dot = el("div", "bpm-pulse-dot");
-        dot.style.animationDuration = Math.max(200, Math.round(60000 / data.avg_bpm)) + "ms";
-        modalBody.appendChild(dot);
-
+        modalBody.appendChild(buildEcgMonitor(data.avg_bpm));
         modalBody.appendChild(el("div", "widget-subtext", data.pulse_label));
         modalBody.appendChild(el("div", "widget-subtext",
             "Averaged from " + data.sample_size + " of your top tracks via Deezer's BPM data — Last.fm doesn't expose tempo itself."));
@@ -661,6 +726,7 @@
         var legend = el("ul", "genre-legend");
         genres.forEach(function (g, i) {
             var li = el("li", "genre-legend-item");
+            li.setAttribute("data-pct", g.pct);
             var swatch = el("span", "genre-swatch");
             swatch.style.background = periodColor(g.name, i);
             li.appendChild(swatch);
@@ -669,6 +735,31 @@
             legend.appendChild(li);
         });
         container.appendChild(legend);
+
+        applyGenreThreshold();
+    }
+
+    // Hides legend rows below the selected percentage threshold so a genre
+    // breakdown with many small slices doesn't make the page too long — the
+    // bar above stays untouched (it's already compact and accurate), only
+    // the list is filtered. Re-applied after every genre re-render (period
+    // switch), so the selected threshold persists across periods.
+    var genreThresholdSelect = document.querySelector("[data-genre-threshold]");
+
+    function applyGenreThreshold() {
+        if (!genreThresholdSelect) {
+            return;
+        }
+        var min = parseFloat(genreThresholdSelect.value) || 0;
+        document.querySelectorAll(".genre-legend-item").forEach(function (li) {
+            var pct = parseFloat(li.getAttribute("data-pct")) || 0;
+            li.classList.toggle("genre-hidden", pct < min);
+        });
+    }
+
+    if (genreThresholdSelect) {
+        genreThresholdSelect.addEventListener("change", applyGenreThreshold);
+        applyGenreThreshold();
     }
 
     function renderTrackListContent(container, tracks) {

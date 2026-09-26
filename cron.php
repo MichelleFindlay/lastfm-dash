@@ -12,9 +12,13 @@
  * lib/LibrarySync.php) a bounded batch at a time, so Favourite Tracks /
  * Trending / Genre Breakdown can eventually be computed for every period
  * from that local file — with exact calendar boundaries instead of Last.fm's
- * approximate rolling windows — rather than a live call on every request. A
- * large library can take many runs to fully backfill; that's the point:
- * each run does a small, fixed amount of work instead of one huge one.
+ * approximate rolling windows — rather than a live call on every request.
+ * Genre Breakdown additionally scores every distinct artist you've
+ * scrobbled once tagged (no "Other" bucket, unlike the live sampled
+ * fallback), so a separate batch each run fetches tags for artists that
+ * don't have any cached yet. A large library can take many runs to fully
+ * backfill either one; that's the point: each run does a small, fixed
+ * amount of work instead of one huge one.
  *
  * Run this every 15 minutes, matching the cache TTL used in widgets.php and
  * LastFm::getInfo(). Two ways to schedule it (crontab syntax: minute 0,15,
@@ -105,6 +109,18 @@ try {
     $failed[] = 'library_backfill';
 }
 
+// Genre tag backfill — so the local, uncapped ("no Other") Genre Breakdown
+// gradually gains full coverage of every distinct artist you've scrobbled,
+// instead of needing a lookup burst covering potentially thousands of
+// artists on a single request.
+try {
+    $tagsPerRun = max(1, (int) ($config['library_tag_backfill_per_run'] ?? 50));
+    $tagBackfill = $library->backfillArtistTags($tagsPerRun);
+    $refreshed[] = 'library_tags';
+} catch (Throwable $e) {
+    $failed[] = 'library_tags';
+}
+
 foreach (WidgetRegistry::SIMPLE_IDS as $id) {
     try {
         WidgetCache::remember($id, ['id' => $id], 900, $handlers[$id]);
@@ -150,6 +166,10 @@ if (isset($backfill)) {
     $summary .= $backfill['complete']
         ? ' — library backfill complete'
         : sprintf(' — library backfill: +%d pages, +%d scrobbles this run', $backfill['pages'], $backfill['scrobbles']);
+}
+
+if (isset($tagBackfill)) {
+    $summary .= sprintf(' — artist tags: +%d this run (%d distinct artists)', $tagBackfill['tagged'], $tagBackfill['total_artists']);
 }
 
 respond($summary, $failed ? 500 : 200);

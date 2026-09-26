@@ -20,6 +20,55 @@ class LastFm
         'american', 'male vocalists', 'female vocalists',
     ];
 
+    /**
+     * Spotify's own official genre-seed vocabulary — the fixed list it used
+     * to expose via its (since-retired) available-genre-seeds endpoint.
+     * Used to filter Genre Breakdown down to tags that are recognizably real
+     * genres rather than Last.fm community-tag noise (artist names, list
+     * titles, "seen live"-style meta-tags that GENRE_BLOCKLIST doesn't
+     * happen to cover). Hyphens are normalized to spaces for comparison, so
+     * e.g. Spotify's "hip-hop" matches Last.fm's "hip hop" tag spelling.
+     */
+    private const SPOTIFY_GENRE_SEEDS = [
+        'acoustic', 'afrobeat', 'alt-rock', 'alternative', 'ambient', 'anime',
+        'black-metal', 'bluegrass', 'blues', 'bossanova', 'brazil', 'breakbeat',
+        'british', 'cantopop', 'chicago-house', 'children', 'chill', 'classical',
+        'club', 'comedy', 'country', 'dance', 'dancehall', 'death-metal',
+        'deep-house', 'detroit-techno', 'disco', 'disney', 'drum-and-bass', 'dub',
+        'dubstep', 'edm', 'electro', 'electronic', 'emo', 'folk', 'forro',
+        'french', 'funk', 'garage', 'german', 'gospel', 'goth', 'grindcore',
+        'groove', 'grunge', 'guitar', 'happy', 'hard-rock', 'hardcore',
+        'hardstyle', 'heavy-metal', 'hip-hop', 'holidays', 'honky-tonk', 'house',
+        'idm', 'indian', 'indie', 'indie-pop', 'industrial', 'iranian',
+        'j-dance', 'j-idol', 'j-pop', 'j-rock', 'jazz', 'k-pop', 'kids',
+        'latin', 'latino', 'malay', 'mandopop', 'metal', 'metal-misc',
+        'metalcore', 'minimal-techno', 'movies', 'mpb', 'new-age', 'new-release',
+        'opera', 'pagode', 'party', 'philippines-opm', 'piano', 'pop',
+        'pop-film', 'post-dubstep', 'power-pop', 'progressive-house', 'psych-rock',
+        'punk', 'punk-rock', 'r-n-b', 'rainy-day', 'reggae', 'reggaeton',
+        'road-trip', 'rock', 'rock-n-roll', 'rockabilly', 'romance', 'sad',
+        'salsa', 'samba', 'sertanejo', 'show-tunes', 'singer-songwriter', 'ska',
+        'sleep', 'songwriter', 'soul', 'soundtracks', 'spanish', 'study',
+        'summer', 'swedish', 'synth-pop', 'tango', 'techno', 'trance',
+        'trip-hop', 'turkish', 'work-out', 'world-music',
+    ];
+
+    /**
+     * A few common Last.fm tag spellings that don't literally match a
+     * Spotify seed even after hyphen normalization, mapped onto the seed
+     * they mean — mainly so "Rnb"/"Dnb"/"Drum & Bass"/"Drum N Bass" collapse
+     * onto the same genre instead of being rejected as unrecognized (or
+     * counted as separate slices, which was its own source of noise).
+     */
+    private const GENRE_ALIASES = [
+        'rnb'         => 'r&b',
+        'r & b'       => 'r&b',
+        'dnb'         => 'drum and bass',
+        'drum n bass' => 'drum and bass',
+        'drum & bass' => 'drum and bass',
+        'hiphop'      => 'hip hop',
+    ];
+
     private string $apiKey;
     private string $user;
     private int $cacheTtl;
@@ -41,8 +90,12 @@ class LastFm
      * Call a Last.fm API method, transparently caching the JSON response.
      * Pass $ttlOverride for calls (like per-track art lookups) that should
      * be cached far longer than the general API response TTL.
+     * Pass $cacheOnly to read a cached response without ever making a live
+     * request — used when a page request needs to know "do we already know
+     * this" without risking a slow/expensive live call of its own; a
+     * background job (cron.php) is what actually fetches missing ones.
      */
-    public function call(string $method, array $params = [], ?int $ttlOverride = null): ?array
+    public function call(string $method, array $params = [], ?int $ttlOverride = null, bool $cacheOnly = false): ?array
     {
         $ttl = $ttlOverride ?? $this->cacheTtl;
 
@@ -60,6 +113,10 @@ class LastFm
             if (is_array($cached)) {
                 return $cached;
             }
+        }
+
+        if ($cacheOnly) {
+            return null;
         }
 
         $url = 'https://ws.audioscrobbler.com/2.0/?' . http_build_query($params);
@@ -282,12 +339,12 @@ class LastFm
      *
      * @return array<int, array{name: string, pct: float}>
      */
-    public function getTopGenres(string $period, int $artistLimit, int $genreLimit): array
+    public function getTopGenres(string $period, int $artistLimit, int $genreLimit, bool $onlySpotifyGenres = false): array
     {
-        $cacheKey = 'genres_' . md5($this->user . $period . $artistLimit . $genreLimit);
+        $cacheKey = 'genres_' . md5($this->user . $period . $artistLimit . $genreLimit . ($onlySpotifyGenres ? '1' : '0'));
 
-        return $this->cached($cacheKey, 86400, function () use ($period, $artistLimit, $genreLimit) {
-            return $this->computeTopGenres($period, $artistLimit, $genreLimit);
+        return $this->cached($cacheKey, 86400, function () use ($period, $artistLimit, $genreLimit, $onlySpotifyGenres) {
+            return $this->computeTopGenres($period, $artistLimit, $genreLimit, $onlySpotifyGenres);
         });
     }
 
@@ -296,15 +353,15 @@ class LastFm
      * "this_month" / "this_week" / "today"), used by the interactive period
      * picker.
      */
-    public function getGenresForUiPeriod(string $uiPeriod, int $artistLimit, int $genreLimit, DateTimeZone $tz): array
+    public function getGenresForUiPeriod(string $uiPeriod, int $artistLimit, int $genreLimit, DateTimeZone $tz, bool $onlySpotifyGenres = false): array
     {
         if ($uiPeriod === 'today') {
-            return $this->getTodayGenres($genreLimit, $tz);
+            return $this->getTodayGenres($genreLimit, $tz, $onlySpotifyGenres);
         }
 
         $period = self::UI_PERIOD_MAP[$uiPeriod] ?? 'overall';
 
-        return $this->getTopGenres($period, $artistLimit, $genreLimit);
+        return $this->getTopGenres($period, $artistLimit, $genreLimit, $onlySpotifyGenres);
     }
 
     /**
@@ -313,18 +370,18 @@ class LastFm
      * full day, unlike the other periods) since "today" keeps changing as
      * you listen.
      */
-    private function getTodayGenres(int $genreLimit, DateTimeZone $tz): array
+    private function getTodayGenres(int $genreLimit, DateTimeZone $tz, bool $onlySpotifyGenres = false): array
     {
-        $cacheKey = 'genres_today_' . md5($this->user . $genreLimit . $tz->getName());
+        $cacheKey = 'genres_today_' . md5($this->user . $genreLimit . $tz->getName() . ($onlySpotifyGenres ? '1' : '0'));
 
-        return $this->cached($cacheKey, 900, function () use ($genreLimit, $tz) {
+        return $this->cached($cacheKey, 900, function () use ($genreLimit, $tz, $onlySpotifyGenres) {
             $artistPlaycounts = $this->getArtistPlaycountsSince($this->todayStart($tz));
 
             if (empty($artistPlaycounts)) {
                 return [];
             }
 
-            return $this->genresFromScores($this->scoreGenreTags($artistPlaycounts), $genreLimit);
+            return $this->genresFromScores($this->scoreGenreTags($artistPlaycounts, false, $onlySpotifyGenres), $genreLimit);
         });
     }
 
@@ -451,7 +508,7 @@ class LastFm
         return $counts;
     }
 
-    private function computeTopGenres(string $period, int $artistLimit, int $genreLimit): array
+    private function computeTopGenres(string $period, int $artistLimit, int $genreLimit, bool $onlySpotifyGenres = false): array
     {
         $top = $this->call('user.gettopartists', ['period' => $period, 'limit' => $artistLimit]);
         $artists = $top['topartists']['artist'] ?? [];
@@ -469,14 +526,20 @@ class LastFm
             }
         }
 
-        return $this->genresFromScores($this->scoreGenreTags($artistPlaycounts), $genreLimit);
+        return $this->genresFromScores($this->scoreGenreTags($artistPlaycounts, false, $onlySpotifyGenres), $genreLimit);
     }
 
     /**
      * @param array<string, int> $artistPlaycounts artist name => weight (playcount or scrobble count)
+     * @param bool $cacheOnly Skip any artist whose tags aren't already cached rather than fetching live —
+     *     used for the local-library "scan everything" path, which must never trigger a live-call burst
+     *     from a page request; cron.php's LibrarySync::backfillArtistTags() fills the cache in instead.
+     * @param bool $onlySpotifyGenres Drop any tag that isn't in Spotify's own genre vocabulary (see
+     *     SPOTIFY_GENRE_SEEDS) — filters out Last.fm community-tag noise (artist names, list titles,
+     *     one-off meta-tags) that GENRE_BLOCKLIST doesn't happen to cover.
      * @return array<string, int> tag name => aggregated score
      */
-    public function scoreGenreTags(array $artistPlaycounts): array
+    public function scoreGenreTags(array $artistPlaycounts, bool $cacheOnly = false, bool $onlySpotifyGenres = false): array
     {
         $scores = [];
 
@@ -485,7 +548,7 @@ class LastFm
                 continue;
             }
 
-            $tagsData = $this->call('artist.gettoptags', ['artist' => $name], 604800);
+            $tagsData = $this->call('artist.gettoptags', ['artist' => $name], 604800, $cacheOnly);
             $tags = $tagsData['toptags']['tag'] ?? [];
 
             if (isset($tags['name'])) {
@@ -498,6 +561,12 @@ class LastFm
                     continue;
                 }
 
+                $tagName = self::GENRE_ALIASES[$tagName] ?? $tagName;
+
+                if ($onlySpotifyGenres && !self::isKnownSpotifyGenre($tagName)) {
+                    continue;
+                }
+
                 // Last.fm's tag "count" is a 0-100 relevance rank, not a play count.
                 $weight = max(1, (int) ($tag['count'] ?? 0));
                 $scores[$tagName] = ($scores[$tagName] ?? 0) + ($weight * $playcount);
@@ -507,7 +576,25 @@ class LastFm
         return $scores;
     }
 
-    public static function genresFromScores(array $scores, int $genreLimit): array
+    private static function isKnownSpotifyGenre(string $tagName): bool
+    {
+        static $seeds = null;
+        if ($seeds === null) {
+            $known = self::SPOTIFY_GENRE_SEEDS;
+            $known[] = 'r&b'; // Spotify's own seed is "r-n-b"; this is the far more common tag spelling
+            $seeds = array_flip(array_map(fn($g) => str_replace('-', ' ', $g), $known));
+        }
+
+        return isset($seeds[str_replace('-', ' ', $tagName)]);
+    }
+
+    /**
+     * @param bool $includeOther Cap at $genreLimit and lump the rest into an "Other" slice — the
+     *     right behaviour for a live, sampled artist list. Pass false to show every genre found
+     *     with no cap and no "Other", appropriate once the local library has scanned every
+     *     artist rather than a sample — $genreLimit is ignored in that case.
+     */
+    public static function genresFromScores(array $scores, int $genreLimit, bool $includeOther = true): array
     {
         arsort($scores);
         $total = array_sum($scores);
@@ -516,17 +603,21 @@ class LastFm
             return [];
         }
 
+        $limit = $includeOther ? $genreLimit : count($scores);
+
         $result = [];
-        foreach (array_slice($scores, 0, $genreLimit, true) as $name => $score) {
+        foreach (array_slice($scores, 0, $limit, true) as $name => $score) {
             $result[] = [
                 'name' => ucwords($name),
                 'pct'  => round($score / $total * 100, 1),
             ];
         }
 
-        $shownTotal = array_sum(array_column($result, 'pct'));
-        if (count($scores) > $genreLimit && $shownTotal < 99.5) {
-            $result[] = ['name' => 'Other', 'pct' => round(100 - $shownTotal, 1)];
+        if ($includeOther) {
+            $shownTotal = array_sum(array_column($result, 'pct'));
+            if (count($scores) > $genreLimit && $shownTotal < 99.5) {
+                $result[] = ['name' => 'Other', 'pct' => round(100 - $shownTotal, 1)];
+            }
         }
 
         return $result;
