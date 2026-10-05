@@ -127,6 +127,8 @@ $apiError = false;
 if (!$needsSetup) {
     $lastfm = new LastFm($config['api_key'], $config['username'], (int) $config['cache_ttl']);
     $listenLinks = new ListenLinks($config, __DIR__);
+    $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
+    $library = new LibrarySync($lastfm, $config['username']);
 
     $recent = $lastfm->getRecentTracks(4);
     $recentTracks = $recent['recenttracks']['track'] ?? [];
@@ -145,6 +147,8 @@ if (!$needsSetup) {
             'album'       => $album,
             'listen'      => $listen,
             'image'       => $art,
+            'track_stats' => $lastfm->getTrackStats($artist, $recentTrack['name'] ?? ''),
+            'insights'    => $library->trackInsights($artist, $recentTrack['name'] ?? '', $tz),
         ];
     } else {
         $apiError = true;
@@ -156,20 +160,21 @@ if (!$needsSetup) {
 
     $previousTrack = null;
     if ($previousTrackRaw) {
+        $previousArtist = $previousTrackRaw['artist']['#text'] ?? ($previousTrackRaw['artist']['name'] ?? '');
         $previousTrack = [
-            'name'   => $previousTrackRaw['name'] ?? '',
-            'artist' => $previousTrackRaw['artist']['#text'] ?? ($previousTrackRaw['artist']['name'] ?? ''),
-            'image'  => LastFm::bestImage($previousTrackRaw['image'] ?? []),
+            'name'        => $previousTrackRaw['name'] ?? '',
+            'artist'      => $previousArtist,
+            'album'       => $previousTrackRaw['album']['#text'] ?? '',
+            'image'       => LastFm::bestImage($previousTrackRaw['image'] ?? []),
+            'track_stats' => $lastfm->getTrackStats($previousArtist, $previousTrackRaw['name'] ?? ''),
+            'insights'    => $library->trackInsights($previousArtist, $previousTrackRaw['name'] ?? '', $tz),
         ];
     }
-
-    $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
 
     $activeFavouritesPeriod = LastFm::validUiPeriod($config['favourites_default_period'] ?? 'all_time', 'all_time');
     $activeTrendingPeriod   = LastFm::validUiPeriod($config['trending_default_period'] ?? 'today', 'today');
     $activeGenrePeriod      = LastFm::validUiPeriod($config['genre_default_period'] ?? 'all_time', 'all_time');
 
-    $library = new LibrarySync($lastfm, $config['username']);
     $spotifyAvailable = !empty($config['spotify_client_id']) && !empty($config['spotify_client_secret']);
 
     $topTracks = $library->tracksForPeriod($activeFavouritesPeriod, (int) $config['top_limit'], $tz)
@@ -266,11 +271,20 @@ if (!empty($config['github_repo'])) {
 
     <?php $heroInitial = strtoupper(substr($nowPlaying['name'] ?? '?', 0, 1)); ?>
     <section class="now-playing">
-        <div class="art-tile">
-            <span class="art-tile-fallback" data-art-fallback
-                  style="<?= empty($nowPlaying['image']) ? '' : 'display:none' ?>"><?= e($heroInitial) ?></span>
-            <img data-art-img src="<?= e($nowPlaying['image'] ?? '') ?>" alt="Album art"
-                 style="<?= empty($nowPlaying['image']) ? 'display:none' : '' ?>">
+        <div class="art-hover">
+            <div class="art-tile">
+                <span class="art-tile-fallback" data-art-fallback
+                      style="<?= empty($nowPlaying['image']) ? '' : 'display:none' ?>"><?= e($heroInitial) ?></span>
+                <img data-art-img src="<?= e($nowPlaying['image'] ?? '') ?>" alt="Album art"
+                     style="<?= empty($nowPlaying['image']) ? 'display:none' : '' ?>">
+            </div>
+            <div class="art-tooltip" data-art-tooltip style="<?= $nowPlaying['name'] ?? '' ? '' : 'display:none' ?>">
+                <div class="art-tooltip-track" data-tooltip-track><?= e($nowPlaying['name'] ?? '') ?></div>
+                <div class="art-tooltip-artist" data-tooltip-artist><?= e($nowPlaying['artist'] ?? '') ?></div>
+                <div class="art-tooltip-album" data-tooltip-album style="<?= empty($nowPlaying['album']) ? 'display:none' : '' ?>"><?= e($nowPlaying['album'] ?? '') ?></div>
+                <?= renderTooltipStats($nowPlaying['track_stats'] ?? null, true, 'data-tooltip-stats', 'data-tooltip-you') ?>
+                <?= renderTooltipInsights($nowPlaying['insights'] ?? null, 'data-tooltip-rank', 'data-tooltip-first', 'data-tooltip-recency') ?>
+            </div>
         </div>
         <div class="info">
             <div class="status-badge" data-status-badge>
@@ -305,11 +319,20 @@ if (!empty($config['github_repo'])) {
         </div>
         <?php $prevInitial = strtoupper(substr($previousTrack['name'] ?? '?', 0, 1)); ?>
         <div class="prev-track" data-prev-track style="<?= $previousTrack ? '' : 'display:none' ?>">
-            <div class="prev-track-thumb">
-                <span class="prev-track-thumb-fallback" data-prev-art-fallback
-                      style="<?= empty($previousTrack['image']) ? '' : 'display:none' ?>"><?= e($prevInitial) ?></span>
-                <img data-prev-art-img src="<?= e($previousTrack['image'] ?? '') ?>" alt=""
-                     style="<?= empty($previousTrack['image']) ? 'display:none' : '' ?>">
+            <div class="art-hover">
+                <div class="prev-track-thumb">
+                    <span class="prev-track-thumb-fallback" data-prev-art-fallback
+                          style="<?= empty($previousTrack['image']) ? '' : 'display:none' ?>"><?= e($prevInitial) ?></span>
+                    <img data-prev-art-img src="<?= e($previousTrack['image'] ?? '') ?>" alt=""
+                         style="<?= empty($previousTrack['image']) ? 'display:none' : '' ?>">
+                </div>
+                <div class="art-tooltip" data-prev-art-tooltip style="<?= $previousTrack ? '' : 'display:none' ?>">
+                    <div class="art-tooltip-track" data-prev-tooltip-track><?= e($previousTrack['name'] ?? '') ?></div>
+                    <div class="art-tooltip-artist" data-prev-tooltip-artist><?= e($previousTrack['artist'] ?? '') ?></div>
+                    <div class="art-tooltip-album" data-prev-tooltip-album style="<?= empty($previousTrack['album']) ? 'display:none' : '' ?>"><?= e($previousTrack['album'] ?? '') ?></div>
+                    <?= renderTooltipStats($previousTrack['track_stats'] ?? null, true, 'data-prev-tooltip-stats', 'data-prev-tooltip-you') ?>
+                    <?= renderTooltipInsights($previousTrack['insights'] ?? null, 'data-prev-tooltip-rank', 'data-prev-tooltip-first', 'data-prev-tooltip-recency') ?>
+                </div>
             </div>
             <div class="prev-track-info">
                 <div class="prev-track-label">Previously played</div>
@@ -330,7 +353,90 @@ if (!empty($config['github_repo'])) {
         echo '</div>';
     }
 
-    function renderTrackListMarkup(array $tracks, ?LastFm $lastfm, string $emptyMessage): void
+    /**
+     * Shared hover-tooltip stats line(s): global listeners/scrobbles always,
+     * plus (for contexts that don't already show a playcount elsewhere,
+     * like the now-playing hero) your own all-time plays and duration.
+     *
+     * $statsAttr/$youAttr (e.g. 'data-tooltip-stats') make the two lines
+     * always render — hidden via inline style when empty rather than
+     * omitted — so JS can find and update them on the next poll; leave
+     * both blank (the track-row case, never JS-updated in place) to just
+     * omit a line entirely when it has nothing to show.
+     */
+    function renderTooltipStats(?array $stats, bool $includeYourPlays, string $statsAttr = '', string $youAttr = ''): string
+    {
+        $stats = $stats ?? ['listeners' => 0, 'playcount' => 0, 'userplaycount' => 0, 'duration' => 0];
+
+        $statsLine = ($stats['listeners'] > 0 || $stats['playcount'] > 0)
+            ? number_format($stats['listeners']) . ' listeners · ' . number_format($stats['playcount']) . ' scrobbles'
+            : '';
+
+        $youParts = [];
+        if ($includeYourPlays) {
+            if ($stats['userplaycount'] > 0) {
+                $youParts[] = number_format($stats['userplaycount']) . ' of your plays';
+            }
+            if ($stats['duration'] > 0) {
+                $youParts[] = sprintf('%d:%02d', intdiv($stats['duration'], 60), $stats['duration'] % 60);
+            }
+        }
+        $youLine = implode(' · ', $youParts);
+
+        $html = '';
+        if ($statsAttr !== '' || $statsLine !== '') {
+            $html .= '<div class="art-tooltip-stats"' . ($statsAttr !== '' ? ' ' . $statsAttr : '')
+                . ($statsLine === '' ? ' style="display:none"' : '') . '>' . e($statsLine) . '</div>';
+        }
+        if ($includeYourPlays && ($youAttr !== '' || $youLine !== '')) {
+            $html .= '<div class="art-tooltip-you"' . ($youAttr !== '' ? ' ' . $youAttr : '')
+                . ($youLine === '' ? ' style="display:none"' : '') . '>' . e($youLine) . '</div>';
+        }
+
+        return $html;
+    }
+
+    /**
+     * The tooltip's "insights" lines — all-time rank, first-scrobbled date,
+     * and a recency/streak line (see LibrarySync::trackInsights()) — each
+     * independently omitted when $insights doesn't have it (local history
+     * doesn't cover it honestly yet), same hidden-vs-omitted convention as
+     * renderTooltipStats().
+     */
+    function renderTooltipInsights(?array $insights, string $rankAttr = '', string $firstAttr = '', string $recencyAttr = ''): string
+    {
+        $insights = $insights ?? ['track_rank' => null, 'artist_rank' => null, 'first_scrobbled' => null, 'recency' => null];
+
+        $rankParts = [];
+        if ($insights['track_rank']) {
+            $rankParts[] = '#' . number_format($insights['track_rank']['rank']) . ' track all-time';
+        }
+        if ($insights['artist_rank']) {
+            $rankParts[] = '#' . number_format($insights['artist_rank']['rank']) . ' artist all-time';
+        }
+        $rankLine = implode(' · ', $rankParts);
+
+        $firstLine = $insights['first_scrobbled'] ? 'First scrobbled ' . date('j M Y', $insights['first_scrobbled']) : '';
+        $recencyLine = $insights['recency'] ? ucfirst($insights['recency']) : '';
+
+        $html = '';
+        if ($rankAttr !== '' || $rankLine !== '') {
+            $html .= '<div class="art-tooltip-rank"' . ($rankAttr !== '' ? ' ' . $rankAttr : '')
+                . ($rankLine === '' ? ' style="display:none"' : '') . '>' . e($rankLine) . '</div>';
+        }
+        if ($firstAttr !== '' || $firstLine !== '') {
+            $html .= '<div class="art-tooltip-first"' . ($firstAttr !== '' ? ' ' . $firstAttr : '')
+                . ($firstLine === '' ? ' style="display:none"' : '') . '>' . e($firstLine) . '</div>';
+        }
+        if ($recencyAttr !== '' || $recencyLine !== '') {
+            $html .= '<div class="art-tooltip-recency"' . ($recencyAttr !== '' ? ' ' . $recencyAttr : '')
+                . ($recencyLine === '' ? ' style="display:none"' : '') . '>' . e($recencyLine) . '</div>';
+        }
+
+        return $html;
+    }
+
+    function renderTrackListMarkup(array $tracks, ?LastFm $lastfm, string $emptyMessage, ?LibrarySync $library = null, ?DateTimeZone $tz = null): void
     {
         if (empty($tracks)) {
             echo '<p class="empty-state">' . e($emptyMessage) . '</p>';
@@ -344,6 +450,12 @@ if (!empty($config['github_repo'])) {
             $pct = max(4, round($playcount / $maxPlaycount * 100));
             $artistName = $t['artist']['name'] ?? '';
             $art = $lastfm->getTrackArt($artistName, $t['name'] ?? '') ?: LastFm::bestImage($t['image'] ?? []);
+            // Reuses the same cached track.getInfo lookup getTrackArt() just
+            // made above, so this costs nothing extra — top-tracks lists
+            // don't carry album info or listen-count stats themselves.
+            $album = $lastfm->getTrackAlbum($artistName, $t['name'] ?? '');
+            $stats = $lastfm->getTrackStats($artistName, $t['name'] ?? '');
+            $insights = ($library && $tz) ? $library->trackInsights($artistName, $t['name'] ?? '', $tz) : null;
             $initial = strtoupper(substr($t['name'] ?? '?', 0, 1));
             // Last.fm's API occasionally lists an image URL that 404s on its
             // own CDN, so fall back to the letter placeholder on load
@@ -352,9 +464,16 @@ if (!empty($config['github_repo'])) {
                 ? '<img src="' . e($art) . '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'\';">'
                     . '<span class="thumb-fallback" style="display:none">' . e($initial) . '</span>'
                 : e($initial);
+            $tooltip = '<div class="art-tooltip">'
+                . '<div class="art-tooltip-track">' . e($t['name'] ?? '') . '</div>'
+                . '<div class="art-tooltip-artist">' . e($artistName) . '</div>'
+                . ($album !== '' ? '<div class="art-tooltip-album">' . e($album) . '</div>' : '')
+                . renderTooltipStats($stats, false)
+                . renderTooltipInsights($insights)
+                . '</div>';
             echo '<li class="track-row" data-artist="' . e($artistName) . '" data-track="' . e($t['name'] ?? '') . '">'
                 . '<span class="rank">' . ($i + 1) . '</span>'
-                . '<span class="thumb">' . $thumb . '</span>'
+                . '<span class="art-hover"><span class="thumb">' . $thumb . '</span>' . $tooltip . '</span>'
                 . '<span class="meta"><div class="name">' . e($t['name'] ?? '') . '</div><div class="artist">' . e($artistName) . '</div></span>'
                 . '<span class="count">' . number_format($playcount) . ' plays<div class="bar"><div class="bar-fill" style="width: ' . $pct . '%"></div></div></span>'
                 . '<span class="listen-links-hover" data-listen-links-hover></span>'
@@ -373,7 +492,7 @@ if (!empty($config['github_repo'])) {
                 <?php endif; ?>
             </div>
             <div data-period-content="favourites">
-                <?php renderTrackListMarkup($topTracks, $lastfm, 'No tracks for this period yet.'); ?>
+                <?php renderTrackListMarkup($topTracks, $lastfm, 'No tracks for this period yet.', $library ?? null, $tz ?? null); ?>
             </div>
         </section>
 
@@ -385,7 +504,7 @@ if (!empty($config['github_repo'])) {
                 <?php endif; ?>
             </div>
             <div data-period-content="trending">
-                <?php renderTrackListMarkup($trending, $lastfm, 'No tracks for this period yet.'); ?>
+                <?php renderTrackListMarkup($trending, $lastfm, 'No tracks for this period yet.', $library ?? null, $tz ?? null); ?>
             </div>
         </section>
     </div>

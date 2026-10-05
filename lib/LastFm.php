@@ -287,6 +287,20 @@ class LastFm
     }
 
     /**
+     * track.getInfo lookup shared by getTrackArt() and getTrackAlbum(), so
+     * asking for both on the same track costs one live call, not two — the
+     * second just hits the first's cache entry.
+     */
+    private function getTrackInfo(string $artist, string $track): array
+    {
+        if ($artist === '' || $track === '') {
+            return [];
+        }
+
+        return $this->call('track.getinfo', ['artist' => $artist, 'track' => $track], 86400) ?? [];
+    }
+
+    /**
      * Real artwork for a track, via its associated album. Last.fm's
      * user.getTopTracks / getWeeklyTrackChart responses mostly return a
      * generic placeholder image now (per-track art was deprecated), so this
@@ -296,13 +310,43 @@ class LastFm
      */
     public function getTrackArt(string $artist, string $track): string
     {
-        if ($artist === '' || $track === '') {
-            return '';
-        }
-
-        $data = $this->call('track.getinfo', ['artist' => $artist, 'track' => $track], 86400);
+        $data = $this->getTrackInfo($artist, $track);
 
         return self::bestImage($data['track']['album']['image'] ?? []);
+    }
+
+    /**
+     * The track's album name, via the same track.getInfo lookup
+     * getTrackArt() already makes — for the hover-info tooltip on track
+     * art, which Favourite Tracks/Trending otherwise have no album data
+     * for at all (only name + artist are in the top-tracks list itself).
+     */
+    public function getTrackAlbum(string $artist, string $track): string
+    {
+        $data = $this->getTrackInfo($artist, $track);
+
+        return $data['track']['album']['title'] ?? '';
+    }
+
+    /**
+     * Listen-count stats for a track, via the same track.getInfo lookup
+     * getTrackArt()/getTrackAlbum() already make — global listeners and
+     * scrobbles, your own all-time playcount for this exact track (Last.fm
+     * personalizes the response since every call already carries the
+     * configured username), and its duration.
+     *
+     * @return array{listeners: int, playcount: int, userplaycount: int, duration: int} duration in seconds
+     */
+    public function getTrackStats(string $artist, string $track): array
+    {
+        $data = $this->getTrackInfo($artist, $track)['track'] ?? [];
+
+        return [
+            'listeners'     => (int) ($data['listeners'] ?? 0),
+            'playcount'     => (int) ($data['playcount'] ?? 0),
+            'userplaycount' => (int) ($data['userplaycount'] ?? 0),
+            'duration'      => (int) round(((int) ($data['duration'] ?? 0)) / 1000),
+        ];
     }
 
     /**

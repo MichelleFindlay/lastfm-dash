@@ -65,6 +65,11 @@ class WidgetRegistry
                     $playcount = (int) ($t['playcount'] ?? 0);
                     $artistName = $t['artist']['name'] ?? '';
                     $art = $lastfm->getTrackArt($artistName, $t['name'] ?? '') ?: LastFm::bestImage($t['image'] ?? []);
+                    // Reuses the same cached track.getInfo lookup getTrackArt()
+                    // just made, so this costs nothing extra.
+                    $album = $lastfm->getTrackAlbum($artistName, $t['name'] ?? '');
+                    $stats = $lastfm->getTrackStats($artistName, $t['name'] ?? '');
+                    $insights = $library->trackInsights($artistName, $t['name'] ?? '', $tz);
 
                     $items[] = [
                         'rank'      => $i + 1,
@@ -73,6 +78,10 @@ class WidgetRegistry
                         'playcount' => $playcount,
                         'pct'       => max(4, round($playcount / $maxPlaycount * 100)),
                         'art'       => $art,
+                        'album'     => $album,
+                        'listeners' => $stats['listeners'],
+                        'global_playcount' => $stats['playcount'],
+                        'insights'  => $insights,
                     ];
                 }
 

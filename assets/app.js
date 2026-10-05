@@ -23,6 +23,24 @@
         prevArtFallback: document.querySelector("[data-prev-art-fallback]"),
         prevName: document.querySelector("[data-prev-track-name]"),
         prevArtist: document.querySelector("[data-prev-track-artist]"),
+        tooltip: document.querySelector("[data-art-tooltip]"),
+        tooltipTrack: document.querySelector("[data-tooltip-track]"),
+        tooltipArtist: document.querySelector("[data-tooltip-artist]"),
+        tooltipAlbum: document.querySelector("[data-tooltip-album]"),
+        prevTooltip: document.querySelector("[data-prev-art-tooltip]"),
+        prevTooltipTrack: document.querySelector("[data-prev-tooltip-track]"),
+        prevTooltipArtist: document.querySelector("[data-prev-tooltip-artist]"),
+        prevTooltipAlbum: document.querySelector("[data-prev-tooltip-album]"),
+        tooltipStats: document.querySelector("[data-tooltip-stats]"),
+        tooltipYou: document.querySelector("[data-tooltip-you]"),
+        prevTooltipStats: document.querySelector("[data-prev-tooltip-stats]"),
+        prevTooltipYou: document.querySelector("[data-prev-tooltip-you]"),
+        tooltipRank: document.querySelector("[data-tooltip-rank]"),
+        tooltipFirst: document.querySelector("[data-tooltip-first]"),
+        tooltipRecency: document.querySelector("[data-tooltip-recency]"),
+        prevTooltipRank: document.querySelector("[data-prev-tooltip-rank]"),
+        prevTooltipFirst: document.querySelector("[data-prev-tooltip-first]"),
+        prevTooltipRecency: document.querySelector("[data-prev-tooltip-recency]"),
     };
 
     function setText(el, value) {
@@ -286,6 +304,68 @@
         linkEl.style.display = "";
     }
 
+    // Shows/hides one line of a hover tooltip (the album line is omitted
+    // entirely rather than shown blank when Last.fm has no album match for
+    // a track, same as the server-rendered markup).
+    function setTooltipLine(el, value) {
+        if (!el) {
+            return;
+        }
+        el.textContent = value || "";
+        el.style.display = value ? "" : "none";
+    }
+
+    function formatDuration(seconds) {
+        seconds = Math.round(seconds);
+        return Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0");
+    }
+
+    // Updates a tooltip's global listen-count line and (optional) "your
+    // plays / duration" line from a getTrackStats()-shaped object.
+    function setTooltipStats(statsEl, youEl, stats) {
+        if (statsEl) {
+            var hasStats = stats && (stats.listeners || stats.playcount);
+            statsEl.textContent = hasStats
+                ? stats.listeners.toLocaleString() + " listeners · " + stats.playcount.toLocaleString() + " scrobbles"
+                : "";
+            statsEl.style.display = hasStats ? "" : "none";
+        }
+        if (youEl) {
+            var parts = [];
+            if (stats && stats.userplaycount) parts.push(stats.userplaycount.toLocaleString() + " of your plays");
+            if (stats && stats.duration) parts.push(formatDuration(stats.duration));
+            youEl.textContent = parts.join(" · ");
+            youEl.style.display = parts.length ? "" : "none";
+        }
+    }
+
+    function formatTooltipDate(ts) {
+        return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(ts * 1000));
+    }
+
+    // Updates a tooltip's all-time rank / first-scrobbled / recency lines
+    // from a LibrarySync::trackInsights()-shaped object — each piece is
+    // independently hidden when local history doesn't cover it yet.
+    function setTooltipInsights(rankEl, firstEl, recencyEl, insights) {
+        if (rankEl) {
+            var rankParts = [];
+            if (insights && insights.track_rank) rankParts.push("#" + insights.track_rank.rank.toLocaleString() + " track all-time");
+            if (insights && insights.artist_rank) rankParts.push("#" + insights.artist_rank.rank.toLocaleString() + " artist all-time");
+            rankEl.textContent = rankParts.join(" · ");
+            rankEl.style.display = rankParts.length ? "" : "none";
+        }
+        if (firstEl) {
+            var firstText = insights && insights.first_scrobbled ? "First scrobbled " + formatTooltipDate(insights.first_scrobbled) : "";
+            firstEl.textContent = firstText;
+            firstEl.style.display = firstText ? "" : "none";
+        }
+        if (recencyEl) {
+            var recencyText = insights && insights.recency ? (insights.recency.charAt(0).toUpperCase() + insights.recency.slice(1)) : "";
+            recencyEl.textContent = recencyText;
+            recencyEl.style.display = recencyText ? "" : "none";
+        }
+    }
+
     function renderTrack(track) {
         if (!track || !track.name) {
             return;
@@ -294,6 +374,13 @@
         setText(els.name, track.name);
         setText(els.artist, track.artist);
         setText(els.album, track.album);
+
+        setTooltipLine(els.tooltipTrack, track.name);
+        setTooltipLine(els.tooltipArtist, track.artist);
+        setTooltipLine(els.tooltipAlbum, track.album);
+        setTooltipStats(els.tooltipStats, els.tooltipYou, track.track_stats);
+        setTooltipInsights(els.tooltipRank, els.tooltipFirst, els.tooltipRecency, track.insights);
+        if (els.tooltip) els.tooltip.style.display = "";
 
         var initial = (track.name || "?").charAt(0).toUpperCase();
         if (els.artFallback) els.artFallback.textContent = initial;
@@ -334,6 +421,13 @@
         els.prevWrap.style.display = "";
         setText(els.prevName, prev.name);
         setText(els.prevArtist, prev.artist);
+
+        setTooltipLine(els.prevTooltipTrack, prev.name);
+        setTooltipLine(els.prevTooltipArtist, prev.artist);
+        setTooltipLine(els.prevTooltipAlbum, prev.album);
+        setTooltipStats(els.prevTooltipStats, els.prevTooltipYou, prev.track_stats);
+        setTooltipInsights(els.prevTooltipRank, els.prevTooltipFirst, els.prevTooltipRecency, prev.insights);
+        if (els.prevTooltip) els.prevTooltip.style.display = "";
 
         var initial = (prev.name || "?").charAt(0).toUpperCase();
         if (els.prevArtFallback) els.prevArtFallback.textContent = initial;
@@ -797,7 +891,38 @@
             } else {
                 thumb.textContent = initial;
             }
-            li.appendChild(thumb);
+
+            var artHover = el("span", "art-hover");
+            artHover.appendChild(thumb);
+
+            var tooltip = el("div", "art-tooltip");
+            tooltip.appendChild(el("div", "art-tooltip-track", t.name));
+            tooltip.appendChild(el("div", "art-tooltip-artist", t.artist));
+            if (t.album) {
+                tooltip.appendChild(el("div", "art-tooltip-album", t.album));
+            }
+            if (t.listeners || t.global_playcount) {
+                tooltip.appendChild(el("div", "art-tooltip-stats",
+                    Number(t.listeners).toLocaleString() + " listeners · " + Number(t.global_playcount).toLocaleString() + " scrobbles"));
+            }
+            if (t.insights) {
+                var rankParts = [];
+                if (t.insights.track_rank) rankParts.push("#" + t.insights.track_rank.rank.toLocaleString() + " track all-time");
+                if (t.insights.artist_rank) rankParts.push("#" + t.insights.artist_rank.rank.toLocaleString() + " artist all-time");
+                if (rankParts.length) {
+                    tooltip.appendChild(el("div", "art-tooltip-rank", rankParts.join(" · ")));
+                }
+                if (t.insights.first_scrobbled) {
+                    tooltip.appendChild(el("div", "art-tooltip-first", "First scrobbled " + formatTooltipDate(t.insights.first_scrobbled)));
+                }
+                if (t.insights.recency) {
+                    tooltip.appendChild(el("div", "art-tooltip-recency",
+                        t.insights.recency.charAt(0).toUpperCase() + t.insights.recency.slice(1)));
+                }
+            }
+            artHover.appendChild(tooltip);
+
+            li.appendChild(artHover);
 
             var meta = el("span", "meta");
             meta.appendChild(el("div", "name", t.name));

@@ -9,6 +9,7 @@ header('Content-Type: application/json');
 
 require __DIR__ . '/lib/LastFm.php';
 require __DIR__ . '/lib/ListenLinks.php';
+require __DIR__ . '/lib/LibrarySync.php';
 
 $configFile = __DIR__ . '/config.php';
 if (!is_file($configFile)) {
@@ -24,6 +25,8 @@ $config = require $configFile;
 $pollSeconds = max(1, (int) ($config['poll_interval_ms'] ?? 10000) / 1000);
 $lastfm = new LastFm($config['api_key'], $config['username'], max(3, $pollSeconds - 2));
 $listenLinks = new ListenLinks($config, __DIR__);
+$library = new LibrarySync($lastfm, $config['username']);
+$tz = LastFm::resolveTimezone($config['timezone'] ?? '');
 $recent = $lastfm->getRecentTracks(4);
 $tracks = $recent['recenttracks']['track'] ?? [];
 
@@ -42,10 +45,14 @@ $previousTrackRaw = LastFm::findPreviousTrack($tracks, $artist, $track['name'] ?
 
 $previousTrack = null;
 if ($previousTrackRaw) {
+    $previousArtist = $previousTrackRaw['artist']['#text'] ?? ($previousTrackRaw['artist']['name'] ?? '');
     $previousTrack = [
-        'name'   => $previousTrackRaw['name'] ?? '',
-        'artist' => $previousTrackRaw['artist']['#text'] ?? ($previousTrackRaw['artist']['name'] ?? ''),
-        'image'  => LastFm::bestImage($previousTrackRaw['image'] ?? []),
+        'name'        => $previousTrackRaw['name'] ?? '',
+        'artist'      => $previousArtist,
+        'album'       => $previousTrackRaw['album']['#text'] ?? '',
+        'image'       => LastFm::bestImage($previousTrackRaw['image'] ?? []),
+        'track_stats' => $lastfm->getTrackStats($previousArtist, $previousTrackRaw['name'] ?? ''),
+        'insights'    => $library->trackInsights($previousArtist, $previousTrackRaw['name'] ?? '', $tz),
     ];
 }
 
@@ -60,5 +67,7 @@ echo json_encode([
     'date'        => $track['date']['#text'] ?? null,
     'stats'       => LastFm::formatLifetimeStats($lastfm->getInfo()),
     'listen'      => $listenLinks->forTrack($artist, $track['name'] ?? ''),
+    'track_stats' => $lastfm->getTrackStats($artist, $track['name'] ?? ''),
+    'insights'    => $library->trackInsights($artist, $track['name'] ?? '', $tz),
     'previous'    => $previousTrack,
 ]);

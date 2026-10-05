@@ -143,6 +143,111 @@ body {
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
 }
 
+/* Hover-info tooltip, shared by the now-playing hero art, the previously-
+   played thumb, and every track-row thumbnail. The wrapper carries
+   position:relative (and flex:none, harmless outside a flex container) so
+   the tooltip — not clipped by the art's own overflow:hidden, since it's a
+   sibling rather than a child of it — can anchor against it. */
+.art-hover {
+    position: relative;
+    flex: none;
+}
+
+.art-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 10px;
+    min-width: 170px;
+    max-width: 260px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: rgba(18, 18, 22, 0.97);
+    border: 1px solid var(--card-border);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: opacity 150ms ease, transform 150ms ease;
+    z-index: 30;
+}
+
+.art-hover:hover .art-tooltip {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.art-tooltip-track {
+    font-size: 0.85rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.art-tooltip-artist {
+    margin-top: 2px;
+    font-size: 0.78rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.art-tooltip-album {
+    margin-top: 2px;
+    font-size: 0.74rem;
+    color: var(--fg-dim);
+    opacity: 0.75;
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.art-tooltip-stats {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.72rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+}
+
+.art-tooltip-you {
+    margin-top: 3px;
+    font-size: 0.72rem;
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap;
+    transition: color var(--color-transition);
+}
+
+.art-tooltip-rank {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.72rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+}
+
+.art-tooltip-first {
+    margin-top: 3px;
+    font-size: 0.72rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+}
+
+.art-tooltip-recency {
+    margin-top: 3px;
+    font-size: 0.74rem;
+    color: var(--accent);
+    font-weight: 700;
+    white-space: normal;
+    transition: color var(--color-transition);
+}
+
 .now-playing .info {
     min-width: 0;
 }
