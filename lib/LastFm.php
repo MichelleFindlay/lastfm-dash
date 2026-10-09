@@ -333,9 +333,10 @@ class LastFm
      * getTrackArt()/getTrackAlbum() already make — global listeners and
      * scrobbles, your own all-time playcount for this exact track (Last.fm
      * personalizes the response since every call already carries the
-     * configured username), and its duration.
+     * configured username), its duration, and whether you've "loved"
+     * (hearted) it on Last.fm.
      *
-     * @return array{listeners: int, playcount: int, userplaycount: int, duration: int} duration in seconds
+     * @return array{listeners: int, playcount: int, userplaycount: int, duration: int, loved: bool} duration in seconds
      */
     public function getTrackStats(string $artist, string $track): array
     {
@@ -346,6 +347,7 @@ class LastFm
             'playcount'     => (int) ($data['playcount'] ?? 0),
             'userplaycount' => (int) ($data['userplaycount'] ?? 0),
             'duration'      => (int) round(((int) ($data['duration'] ?? 0)) / 1000),
+            'loved'         => ($data['userloved'] ?? '0') === '1',
         ];
     }
 

@@ -53,6 +53,7 @@ if ($previousTrackRaw) {
         'image'       => LastFm::bestImage($previousTrackRaw['image'] ?? []),
         'track_stats' => $lastfm->getTrackStats($previousArtist, $previousTrackRaw['name'] ?? ''),
         'insights'    => $library->trackInsights($previousArtist, $previousTrackRaw['name'] ?? '', $tz),
+        'loved'       => ($previousTrackRaw['loved'] ?? '0') === '1',
     ];
 }
 
@@ -69,5 +70,6 @@ echo json_encode([
     'listen'      => $listenLinks->forTrack($artist, $track['name'] ?? ''),
     'track_stats' => $lastfm->getTrackStats($artist, $track['name'] ?? ''),
     'insights'    => $library->trackInsights($artist, $track['name'] ?? '', $tz),
+    'loved'       => ($track['loved'] ?? '0') === '1',
     'previous'    => $previousTrack,
 ]);

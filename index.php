@@ -149,6 +149,7 @@ if (!$needsSetup) {
             'image'       => $art,
             'track_stats' => $lastfm->getTrackStats($artist, $recentTrack['name'] ?? ''),
             'insights'    => $library->trackInsights($artist, $recentTrack['name'] ?? '', $tz),
+            'loved'       => ($recentTrack['loved'] ?? '0') === '1',
         ];
     } else {
         $apiError = true;
@@ -168,6 +169,7 @@ if (!$needsSetup) {
             'image'       => LastFm::bestImage($previousTrackRaw['image'] ?? []),
             'track_stats' => $lastfm->getTrackStats($previousArtist, $previousTrackRaw['name'] ?? ''),
             'insights'    => $library->trackInsights($previousArtist, $previousTrackRaw['name'] ?? '', $tz),
+            'loved'       => ($previousTrackRaw['loved'] ?? '0') === '1',
         ];
     }
 
@@ -292,7 +294,7 @@ if (!empty($config['github_repo'])) {
                     ? '<span class="eq"><span></span><span></span><span></span></span> Now scrobbling'
                     : 'Last played' ?>
             </div>
-            <p class="track-name" data-track-name><?= e($nowPlaying['name'] ?? 'No recent tracks') ?></p>
+            <p class="track-name"><span class="track-name-text" data-track-name><?= e($nowPlaying['name'] ?? 'No recent tracks') ?></span><?= renderLovedHeart($nowPlaying['loved'] ?? false, 'data-loved-heart') ?></p>
             <p class="track-artist" data-track-artist><?= e($nowPlaying['artist'] ?? '') ?></p>
             <p class="track-album" data-track-album><?= e($nowPlaying['album'] ?? '') ?></p>
             <div class="listen-links" data-listen-links>
@@ -336,7 +338,7 @@ if (!empty($config['github_repo'])) {
             </div>
             <div class="prev-track-info">
                 <div class="prev-track-label">Previously played</div>
-                <div class="prev-track-name" data-prev-track-name><?= e($previousTrack['name'] ?? '') ?></div>
+                <div class="prev-track-name"><span class="track-name-text" data-prev-track-name><?= e($previousTrack['name'] ?? '') ?></span><?= renderLovedHeart($previousTrack['loved'] ?? false, 'data-prev-loved-heart') ?></div>
                 <div class="prev-track-artist" data-prev-track-artist><?= e($previousTrack['artist'] ?? '') ?></div>
             </div>
         </div>
@@ -436,6 +438,23 @@ if (!empty($config['github_repo'])) {
         return $html;
     }
 
+    /**
+     * The little heart icon marking a track as "loved" on Last.fm. Always
+     * rendered (hidden via inline style when not loved, not omitted) when
+     * $attr is given, so JS can toggle it in place on the next poll;
+     * omitted entirely for the static track-row case.
+     */
+    function renderLovedHeart(bool $loved, string $attr = ''): string
+    {
+        if (!$loved && $attr === '') {
+            return '';
+        }
+
+        return '<span class="loved-heart-badge"' . ($attr !== '' ? ' ' . $attr : '') . ($loved ? '' : ' style="display:none"') . '>'
+            . '<svg class="loved-heart" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><title>Loved on Last.fm</title>'
+            . '<path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></span>';
+    }
+
     function renderTrackListMarkup(array $tracks, ?LastFm $lastfm, string $emptyMessage, ?LibrarySync $library = null, ?DateTimeZone $tz = null): void
     {
         if (empty($tracks)) {
@@ -474,7 +493,7 @@ if (!empty($config['github_repo'])) {
             echo '<li class="track-row" data-artist="' . e($artistName) . '" data-track="' . e($t['name'] ?? '') . '">'
                 . '<span class="rank">' . ($i + 1) . '</span>'
                 . '<span class="art-hover"><span class="thumb">' . $thumb . '</span>' . $tooltip . '</span>'
-                . '<span class="meta"><div class="name">' . e($t['name'] ?? '') . '</div><div class="artist">' . e($artistName) . '</div></span>'
+                . '<span class="meta"><div class="name"><span class="track-name-text">' . e($t['name'] ?? '') . '</span>' . renderLovedHeart($stats['loved']) . '</div><div class="artist">' . e($artistName) . '</div></span>'
                 . '<span class="count">' . number_format($playcount) . ' plays<div class="bar"><div class="bar-fill" style="width: ' . $pct . '%"></div></div></span>'
                 . '<span class="listen-links-hover" data-listen-links-hover></span>'
                 . '</li>';

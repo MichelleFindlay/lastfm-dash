@@ -82,6 +82,7 @@ class WidgetRegistry
                         'listeners' => $stats['listeners'],
                         'global_playcount' => $stats['playcount'],
                         'insights'  => $insights,
+                        'loved'     => $stats['loved'],
                     ];
                 }
 

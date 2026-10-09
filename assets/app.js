@@ -41,6 +41,8 @@
         prevTooltipRank: document.querySelector("[data-prev-tooltip-rank]"),
         prevTooltipFirst: document.querySelector("[data-prev-tooltip-first]"),
         prevTooltipRecency: document.querySelector("[data-prev-tooltip-recency]"),
+        lovedHeart: document.querySelector("[data-loved-heart]"),
+        prevLovedHeart: document.querySelector("[data-prev-loved-heart]"),
     };
 
     function setText(el, value) {
@@ -366,6 +368,12 @@
         }
     }
 
+    function setLovedHeart(el, loved) {
+        if (el) {
+            el.style.display = loved ? "" : "none";
+        }
+    }
+
     function renderTrack(track) {
         if (!track || !track.name) {
             return;
@@ -374,6 +382,7 @@
         setText(els.name, track.name);
         setText(els.artist, track.artist);
         setText(els.album, track.album);
+        setLovedHeart(els.lovedHeart, track.loved);
 
         setTooltipLine(els.tooltipTrack, track.name);
         setTooltipLine(els.tooltipArtist, track.artist);
@@ -421,6 +430,7 @@
         els.prevWrap.style.display = "";
         setText(els.prevName, prev.name);
         setText(els.prevArtist, prev.artist);
+        setLovedHeart(els.prevLovedHeart, prev.loved);
 
         setTooltipLine(els.prevTooltipTrack, prev.name);
         setTooltipLine(els.prevTooltipArtist, prev.artist);
@@ -494,6 +504,17 @@
         if (className) node.className = className;
         if (text !== undefined) node.textContent = text;
         return node;
+    }
+
+    // The small heart icon marking a track as "loved" on Last.fm, built via
+    // the same path data as the server-rendered version in index.php.
+    function buildLovedHeart() {
+        var span = document.createElement("span");
+        span.className = "loved-heart-badge";
+        span.innerHTML = '<svg class="loved-heart" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">'
+            + '<title>Loved on Last.fm</title>'
+            + '<path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+        return span;
     }
 
     function openModal() {
@@ -925,7 +946,12 @@
             li.appendChild(artHover);
 
             var meta = el("span", "meta");
-            meta.appendChild(el("div", "name", t.name));
+            var nameEl = el("div", "name");
+            nameEl.appendChild(el("span", "track-name-text", t.name));
+            if (t.loved) {
+                nameEl.appendChild(buildLovedHeart());
+            }
+            meta.appendChild(nameEl);
             meta.appendChild(el("div", "artist", t.artist));
             li.appendChild(meta);
 
