@@ -47,6 +47,11 @@
         prevLovedHeart: document.querySelector("[data-prev-loved-heart]"),
         grammyBadge: document.querySelector("[data-grammy-badge]"),
         prevGrammyBadge: document.querySelector("[data-prev-grammy-badge]"),
+        explicitBadge: document.querySelector("[data-explicit-badge]"),
+        prevExplicitBadge: document.querySelector("[data-prev-explicit-badge]"),
+        certBadge: document.querySelector("[data-cert-badge]"),
+        prevCertBadge: document.querySelector("[data-prev-cert-badge]"),
+        prevListenLinks: document.querySelector("[data-prev-listen-links]"),
     };
 
     function setText(el, value) {
@@ -391,6 +396,29 @@
         }
     }
 
+    // Mirrors renderCertBadge() in index.php — tier colour class, the
+    // multiplier for multi-Platinum/Diamond, one tooltip line per region.
+    function setCertBadge(badge, certs) {
+        if (!badge) {
+            return;
+        }
+        badge.style.display = certs ? "" : "none";
+        if (!certs) {
+            return;
+        }
+        badge.className = "cert-badge cert-" + certs.tier;
+        badge.title = certs.lines.join("\n");
+        badge.setAttribute("aria-label", certs.lines.join("; "));
+        var mult = badge.querySelector(".cert-multiplier");
+        if (mult) mult.textContent = certs.multiplier > 1 ? certs.multiplier + "\u00d7" : "";
+    }
+
+    function setExplicitBadge(el, explicit) {
+        if (el) {
+            el.style.display = explicit ? "" : "none";
+        }
+    }
+
     function renderTrack(track) {
         if (!track || !track.name) {
             return;
@@ -401,6 +429,8 @@
         setText(els.album, track.album);
         setLovedHeart(els.lovedHeart, track.loved);
         setGrammyBadge(els.grammyBadge, track.grammy);
+        setCertBadge(els.certBadge, track.certs);
+        setExplicitBadge(els.explicitBadge, track.explicit);
 
         setTooltipLine(els.tooltipTrack, track.name);
         setTooltipLine(els.tooltipArtist, track.artist);
@@ -452,6 +482,9 @@
         setText(els.prevArtist, prev.artist);
         setLovedHeart(els.prevLovedHeart, prev.loved);
         setGrammyBadge(els.prevGrammyBadge, prev.grammy);
+        setCertBadge(els.prevCertBadge, prev.certs);
+        setExplicitBadge(els.prevExplicitBadge, prev.explicit);
+        if (els.prevListenLinks) renderHoverListenLinks(els.prevListenLinks, prev.listen || {});
 
         setTooltipLine(els.prevTooltipTrack, prev.name);
         setTooltipLine(els.prevTooltipArtist, prev.artist);
@@ -547,6 +580,22 @@
         span.innerHTML = '<svg class="grammy-icon" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">'
             + '<title>' + span.title + '</title>'
             + '<path fill="currentColor" d="M7 2a1 1 0 0 0-1 1v2H4a1 1 0 0 0-1 1v2c0 2.21 1.79 4 4 4 .34 1.6 1.63 2.86 3.25 3.17V18H9a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-1.25v-2.83c1.62-.31 2.91-1.57 3.25-3.17 2.21 0 4-1.79 4-4V6a1 1 0 0 0-1-1h-2V3a1 1 0 0 0-1-1H7zM5 7h1v1.83A2.5 2.5 0 0 1 5 7zm13 0v1.83A2.5 2.5 0 0 0 19 7h-1z"/></svg>';
+        return span;
+    }
+
+    function buildCertBadge(certs) {
+        var span = document.createElement("span");
+        span.innerHTML = '<svg class="cert-icon" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">'
+            + '<path fill="currentColor" fill-rule="evenodd" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 6.5a3.5 3.5 0 1 1 0 7 3.5 3.5 0 0 1 0-7zm0 2.5a1 1 0 1 0 0 2 1 1 0 0 0 0-2z"/></svg>'
+            + '<span class="cert-multiplier"></span>';
+        setCertBadge(span, certs);
+        return span;
+    }
+
+    function buildExplicitBadge() {
+        var span = el("span", "explicit-badge", "E");
+        span.title = "Explicit";
+        span.setAttribute("aria-label", "Explicit");
         return span;
     }
 
@@ -987,6 +1036,12 @@
             if (t.grammy) {
                 nameEl.appendChild(buildGrammyBadge(t.grammy));
             }
+            if (t.certs) {
+                nameEl.appendChild(buildCertBadge(t.certs));
+            }
+            if (t.explicit) {
+                nameEl.appendChild(buildExplicitBadge());
+            }
             meta.appendChild(nameEl);
             meta.appendChild(el("div", "artist", t.artist));
             li.appendChild(meta);
@@ -1205,8 +1260,79 @@
         var artHover = evt.target.closest && evt.target.closest(".art-hover");
         if (artHover) {
             positionArtTooltip(artHover);
+            loadTooltipFilms(artHover);
         }
     });
+
+    // --- "In films: ..." line on track art tooltips ---
+    // Looked up lazily on first hover via films.php (MusicBrainz soundtrack
+    // albums — see lib/FilmSoundtracks.php), same reasoning as the hover
+    // listen links above. Artist/track are read from the tooltip's own
+    // lines rather than data attributes, so the one handler covers the
+    // hero, previously-played and every track-row tooltip, and picks up
+    // the hero/previous tooltips' new track after a poll swaps it in.
+
+    var filmsCache = {};
+
+    function renderTooltipFilms(filmsEl, films) {
+        filmsEl.textContent = films.length ? "In films: " + films.join(", ") : "";
+        filmsEl.style.display = films.length ? "" : "none";
+    }
+
+    function loadTooltipFilms(wrapper) {
+        var tooltip = wrapper.querySelector(".art-tooltip");
+        var trackEl = tooltip && tooltip.querySelector(".art-tooltip-track");
+        var artistEl = tooltip && tooltip.querySelector(".art-tooltip-artist");
+        if (!trackEl || !artistEl) {
+            return;
+        }
+
+        var track = trackEl.textContent.trim();
+        var artist = artistEl.textContent.trim();
+        if (!artist || !track) {
+            return;
+        }
+
+        var filmsEl = tooltip.querySelector(".art-tooltip-films");
+        if (!filmsEl) {
+            filmsEl = el("div", "art-tooltip-films");
+            filmsEl.style.display = "none";
+            tooltip.appendChild(filmsEl);
+        }
+
+        var cacheKey = artist.toLowerCase() + "|" + track.toLowerCase();
+        if (filmsEl.getAttribute("data-films-key") === cacheKey) {
+            return;
+        }
+        filmsEl.setAttribute("data-films-key", cacheKey);
+
+        if (filmsCache[cacheKey]) {
+            renderTooltipFilms(filmsEl, filmsCache[cacheKey]);
+            return;
+        }
+        renderTooltipFilms(filmsEl, []);
+
+        fetch("films.php?artist=" + encodeURIComponent(artist) + "&track=" + encodeURIComponent(track), { cache: "no-store" })
+            .then(function (res) { return res.json(); })
+            .then(function (payload) {
+                if (!payload || !payload.ok) {
+                    filmsEl.removeAttribute("data-films-key");
+                    return;
+                }
+                filmsCache[cacheKey] = payload.films;
+                // The hero/previous tooltip may have moved on to another
+                // track while this was in flight.
+                if (filmsEl.getAttribute("data-films-key") === cacheKey) {
+                    renderTooltipFilms(filmsEl, payload.films);
+                    if (wrapper.matches(":hover")) {
+                        positionArtTooltip(wrapper);
+                    }
+                }
+            })
+            .catch(function () {
+                filmsEl.removeAttribute("data-films-key");
+            });
+    }
 
     var heroSection = document.querySelector(".now-playing");
     if (heroSection) {

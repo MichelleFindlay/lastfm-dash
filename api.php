@@ -11,6 +11,7 @@ require __DIR__ . '/lib/LastFm.php';
 require __DIR__ . '/lib/ListenLinks.php';
 require __DIR__ . '/lib/LibrarySync.php';
 require __DIR__ . '/lib/GrammyAwards.php';
+require __DIR__ . '/lib/Certifications.php';
 
 $configFile = __DIR__ . '/config.php';
 if (!is_file($configFile)) {
@@ -29,6 +30,7 @@ $listenLinks = new ListenLinks($config, __DIR__);
 $spotify = new Spotify($config['spotify_client_id'] ?? '', $config['spotify_client_secret'] ?? '');
 $appleMusic = new AppleMusic(__DIR__);
 $grammyAwards = new GrammyAwards(__DIR__);
+$certifications = new Certifications(__DIR__, $config['github_repo'] ?? '');
 $library = new LibrarySync($lastfm, $config['username']);
 $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
 $recent = $lastfm->getRecentTracks(4);
@@ -59,6 +61,9 @@ if ($previousTrackRaw) {
         'insights'    => $library->trackInsights($previousArtist, $previousTrackRaw['name'] ?? '', $tz),
         'loved'       => ($previousTrackRaw['loved'] ?? '0') === '1',
         'grammy'      => $grammyAwards->findAward($previousArtist, $previousTrackRaw['name'] ?? ''),
+        'certs'       => $certifications->find($previousArtist, $previousTrackRaw['name'] ?? ''),
+        'explicit'    => $spotify->isExplicit($previousArtist, $previousTrackRaw['name'] ?? '', $appleMusic),
+        'listen'      => $listenLinks->forTrack($previousArtist, $previousTrackRaw['name'] ?? ''),
     ];
 }
 
@@ -77,5 +82,7 @@ echo json_encode([
     'insights'    => $library->trackInsights($artist, $track['name'] ?? '', $tz),
     'loved'       => ($track['loved'] ?? '0') === '1',
     'grammy'      => $grammyAwards->findAward($artist, $track['name'] ?? ''),
+    'certs'       => $certifications->find($artist, $track['name'] ?? ''),
+    'explicit'    => $spotify->isExplicit($artist, $track['name'] ?? '', $appleMusic),
     'previous'    => $previousTrack,
 ]);
