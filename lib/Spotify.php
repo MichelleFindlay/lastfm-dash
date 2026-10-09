@@ -76,7 +76,7 @@ class Spotify
      * (the quick-listen link) and art-fallback resolution, so asking for
      * both on the same track costs one Spotify search, not two.
      *
-     * @return array{url: string, art: string}|null
+     * @return array{url: string, art: string, explicit: bool}|null
      */
     public function searchTrack(string $artist, string $track): ?array
     {
@@ -88,7 +88,10 @@ class Spotify
         $cacheFile = $this->cacheDir . '/' . $cacheKey . '.json';
         if (is_file($cacheFile) && (time() - filemtime($cacheFile)) < 2592000) {
             $cached = json_decode((string) file_get_contents($cacheFile), true);
-            if (is_array($cached) && array_key_exists('found', $cached)) {
+            // Matches cached before the explicit flag was added are refetched
+            // once rather than reported as not explicit for up to 30 days.
+            if (is_array($cached) && array_key_exists('found', $cached)
+                && (!$cached['found'] || array_key_exists('explicit', $cached['data'] ?? []))) {
                 return $cached['found'] ? $cached['data'] : null;
             }
         }
@@ -106,6 +109,11 @@ class Spotify
         }
 
         $data = json_decode($response, true);
+        if (!is_array($data) || !isset($data['tracks'])) {
+            // An error body (rate limit, expired token) rather than search
+            // results — don't cache it as "no match".
+            return null;
+        }
         $item = $data['tracks']['items'][0] ?? null;
 
         $result = null;
@@ -114,6 +122,7 @@ class Spotify
             $result = [
                 'url' => $item['external_urls']['spotify'] ?? '',
                 'art' => $images[0]['url'] ?? '',
+                'explicit' => !empty($item['explicit']),
             ];
         }
 
@@ -159,5 +168,22 @@ class Spotify
         }
 
         return '';
+    }
+
+    /**
+     * Whether a track has explicit lyrics, per Apple Music (keyless, so
+     * always available) and Spotify (when configured). Either one saying
+     * so is enough: each catalog's search sometimes matches the clean
+     * edit instead of the original, so a single "not explicit" proves
+     * little. Both searches are the same cached ones the listen links
+     * and art fallback use.
+     */
+    public function isExplicit(string $artist, string $track, ?AppleMusic $appleMusic = null): bool
+    {
+        if ($appleMusic !== null && !empty($appleMusic->searchTrack($artist, $track)['explicit'])) {
+            return true;
+        }
+
+        return !empty($this->searchTrack($artist, $track)['explicit']);
     }
 }

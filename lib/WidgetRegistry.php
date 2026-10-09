@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/GrammyAwards.php';
+require_once __DIR__ . '/Certifications.php';
 
 /**
  * Builds the id => compute-closure map for every widget endpoint. Shared
@@ -34,6 +35,7 @@ class WidgetRegistry
         $spotify = new Spotify($config['spotify_client_id'] ?? '', $config['spotify_client_secret'] ?? '');
         $appleMusic = new AppleMusic(__DIR__ . '/..');
         $grammyAwards = new GrammyAwards(__DIR__ . '/..');
+        $certifications = new Certifications(__DIR__ . '/..', $config['github_repo'] ?? '');
 
         return [
             'listening_clock' => fn() => $widgets->listeningClock(),
@@ -56,7 +58,7 @@ class WidgetRegistry
 
                 return ['available' => !empty($genres), 'period' => $period, 'genres' => $genres];
             },
-            'tracks' => function () use ($lastfm, $library, $config, $spotify, $appleMusic, $grammyAwards) {
+            'tracks' => function () use ($lastfm, $library, $config, $spotify, $appleMusic, $grammyAwards, $certifications) {
                 $period = LastFm::validUiPeriod($_GET['period'] ?? '');
                 $panel = ($_GET['panel'] ?? '') === 'trending' ? 'trending' : 'favourites';
                 $limit = (int) ($panel === 'trending' ? ($config['trend_limit'] ?? 8) : ($config['top_limit'] ?? 8));
@@ -85,6 +87,8 @@ class WidgetRegistry
                     $stats = $lastfm->getTrackStats($artistName, $t['name'] ?? '');
                     $insights = $library->trackInsights($artistName, $t['name'] ?? '', $tz);
                     $award = $grammyAwards->findAward($artistName, $t['name'] ?? '');
+                    $explicit = $spotify->isExplicit($artistName, $t['name'] ?? '', $appleMusic);
+                    $certs = $certifications->find($artistName, $t['name'] ?? '');
 
                     $items[] = [
                         'rank'      => $i + 1,
@@ -99,6 +103,8 @@ class WidgetRegistry
                         'insights'  => $insights,
                         'loved'     => $stats['loved'],
                         'grammy'    => $award,
+                        'explicit'  => $explicit,
+                        'certs'     => $certs,
                     ];
                 }
 

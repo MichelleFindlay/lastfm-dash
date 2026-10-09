@@ -269,6 +269,15 @@ body {
     transition: color var(--color-transition);
 }
 
+.art-tooltip-films {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.72rem;
+    color: var(--fg-dim);
+    white-space: normal;
+}
+
 .now-playing .info {
     min-width: 0;
 }
@@ -373,6 +382,76 @@ body {
 .grammy-icon {
     display: block;
     color: #ffc440;
+}
+
+/* Sales certification disc (see renderCertBadge()) — coloured by the
+   highest tier reached, with the multiplier beside it for multi-Platinum
+   and multi-Diamond. */
+.cert-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    flex: none;
+    height: 20px;
+    padding: 0 4px;
+    border-radius: 10px;
+    cursor: default;
+}
+
+.cert-icon {
+    display: block;
+}
+
+.cert-multiplier {
+    font-size: 0.66rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.cert-multiplier:empty {
+    display: none;
+}
+
+.cert-silver {
+    color: #c9ced6;
+    background: rgba(201, 206, 214, 0.16);
+}
+
+.cert-gold {
+    color: #e8b84a;
+    background: rgba(232, 184, 74, 0.16);
+}
+
+.cert-platinum {
+    color: #e6eef5;
+    background: rgba(160, 190, 215, 0.22);
+}
+
+.cert-diamond {
+    color: #9fe7ff;
+    background: rgba(120, 220, 255, 0.18);
+}
+
+/* The boxed "E" streaming services use for explicit tracks. Sized in em so
+   it scales with whichever track-name line it sits on. */
+.explicit-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    min-width: 1.35em;
+    height: 1.35em;
+    padding: 0 0.2em;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.22);
+    color: var(--fg);
+    font-size: 0.62em;
+    font-weight: 700;
+    font-style: normal;
+    line-height: 1;
+    letter-spacing: 0;
+    vertical-align: middle;
+    cursor: default;
 }
 
 .now-playing .track-artist {
@@ -509,6 +588,28 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+.mini-listen-links {
+    display: flex;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.mini-listen-links:empty {
+    display: none;
+}
+
+.mini-listen-links .listen-icon {
+    width: 20px;
+    height: 20px;
+}
+
+/* JS refills these with the 14px hover-link icons; keep them at the
+   server-rendered 12px so the row doesn't resize on the first poll. */
+.mini-listen-links svg {
+    width: 12px;
+    height: 12px;
 }
 
 /* --- Panels --- */
@@ -916,6 +1017,25 @@ body {
 .lastfm-icon {
     color: #d51007;
     flex: none;
+}
+
+.powered-by-line {
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.powered-by-line a {
+    display: inline-flex;
+    color: var(--fg-dim);
+    transition: color 150ms ease;
+}
+
+.powered-by-line a:hover {
+    color: var(--fg);
 }
 
 .version-line {

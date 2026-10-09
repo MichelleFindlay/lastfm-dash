@@ -29,7 +29,7 @@ class AppleMusic
     }
 
     /**
-     * @return array{url: string, art: string}|null
+     * @return array{url: string, art: string, explicit: bool}|null
      */
     public function searchTrack(string $artist, string $track): ?array
     {
@@ -41,7 +41,10 @@ class AppleMusic
         $cacheFile = $this->cacheDir . '/' . $cacheKey . '.json';
         if (is_file($cacheFile) && (time() - filemtime($cacheFile)) < 2592000) {
             $cached = json_decode((string) file_get_contents($cacheFile), true);
-            if (is_array($cached) && array_key_exists('found', $cached)) {
+            // Matches cached before the explicit flag was added are refetched
+            // once rather than reported as not explicit for up to 30 days.
+            if (is_array($cached) && array_key_exists('found', $cached)
+                && (!$cached['found'] || array_key_exists('explicit', $cached['data'] ?? []))) {
                 return $cached['found'] ? $cached['data'] : null;
             }
         }
@@ -57,7 +60,12 @@ class AppleMusic
         }
 
         $data = json_decode($response, true);
-        $results = $data['results'] ?? [];
+        if (!is_array($data) || !isset($data['results'])) {
+            // Rate-limited (Apple answers a 403 with no JSON body) or
+            // otherwise not a real answer — don't cache it as "no match".
+            return null;
+        }
+        $results = $data['results'];
 
         $result = null;
         foreach ($results as $item) {
@@ -65,6 +73,8 @@ class AppleMusic
                 $result = [
                     'url' => $item['trackViewUrl'] ?? '',
                     'art' => self::upscaleArtwork($item['artworkUrl100'] ?? ''),
+                    // "explicit", "cleaned" (the edited version) or "notExplicit"
+                    'explicit' => ($item['trackExplicitness'] ?? '') === 'explicit',
                 ];
                 break;
             }
