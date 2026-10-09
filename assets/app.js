@@ -18,6 +18,8 @@
         bgB: document.querySelector("[data-bg-b]"),
         listenSpotify: document.querySelector("[data-listen-spotify]"),
         listenYoutube: document.querySelector("[data-listen-youtube]"),
+        listenApple: document.querySelector("[data-listen-apple]"),
+        listenAmazon: document.querySelector("[data-listen-amazon]"),
         prevWrap: document.querySelector("[data-prev-track]"),
         prevArtImg: document.querySelector("[data-prev-art-img]"),
         prevArtFallback: document.querySelector("[data-prev-art-fallback]"),
@@ -43,6 +45,8 @@
         prevTooltipRecency: document.querySelector("[data-prev-tooltip-recency]"),
         lovedHeart: document.querySelector("[data-loved-heart]"),
         prevLovedHeart: document.querySelector("[data-prev-loved-heart]"),
+        grammyBadge: document.querySelector("[data-grammy-badge]"),
+        prevGrammyBadge: document.querySelector("[data-prev-grammy-badge]"),
     };
 
     function setText(el, value) {
@@ -374,6 +378,19 @@
         }
     }
 
+    function setGrammyBadge(el, award) {
+        if (!el) {
+            return;
+        }
+        el.style.display = award ? "" : "none";
+        if (award) {
+            var title = "Grammy Award: " + award.category + " (" + award.year + ")";
+            el.title = title;
+            var svgTitle = el.querySelector(".grammy-icon title");
+            if (svgTitle) svgTitle.textContent = title;
+        }
+    }
+
     function renderTrack(track) {
         if (!track || !track.name) {
             return;
@@ -383,6 +400,7 @@
         setText(els.artist, track.artist);
         setText(els.album, track.album);
         setLovedHeart(els.lovedHeart, track.loved);
+        setGrammyBadge(els.grammyBadge, track.grammy);
 
         setTooltipLine(els.tooltipTrack, track.name);
         setTooltipLine(els.tooltipArtist, track.artist);
@@ -415,6 +433,8 @@
         if (track.listen) {
             setListenLink(els.listenSpotify, track.listen.spotify, "Spotify");
             setListenLink(els.listenYoutube, track.listen.youtube, "YouTube Music");
+            setListenLink(els.listenApple, track.listen.apple, "Apple Music");
+            setListenLink(els.listenAmazon, track.listen.amazon, "Amazon Music");
         }
     }
 
@@ -431,6 +451,7 @@
         setText(els.prevName, prev.name);
         setText(els.prevArtist, prev.artist);
         setLovedHeart(els.prevLovedHeart, prev.loved);
+        setGrammyBadge(els.prevGrammyBadge, prev.grammy);
 
         setTooltipLine(els.prevTooltipTrack, prev.name);
         setTooltipLine(els.prevTooltipArtist, prev.artist);
@@ -514,6 +535,18 @@
         span.innerHTML = '<svg class="loved-heart" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">'
             + '<title>Loved on Last.fm</title>'
             + '<path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
+        return span;
+    }
+
+    // The small trophy icon marking a track as a Grammy Award winner, built
+    // via the same path data as the server-rendered version in index.php.
+    function buildGrammyBadge(award) {
+        var span = document.createElement("span");
+        span.className = "grammy-badge";
+        span.title = "Grammy Award: " + award.category + " (" + award.year + ")";
+        span.innerHTML = '<svg class="grammy-icon" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">'
+            + '<title>' + span.title + '</title>'
+            + '<path fill="currentColor" d="M7 2a1 1 0 0 0-1 1v2H4a1 1 0 0 0-1 1v2c0 2.21 1.79 4 4 4 .34 1.6 1.63 2.86 3.25 3.17V18H9a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-1.25v-2.83c1.62-.31 2.91-1.57 3.25-3.17 2.21 0 4-1.79 4-4V6a1 1 0 0 0-1-1h-2V3a1 1 0 0 0-1-1H7zM5 7h1v1.83A2.5 2.5 0 0 1 5 7zm13 0v1.83A2.5 2.5 0 0 0 19 7h-1z"/></svg>';
         return span;
     }
 
@@ -951,6 +984,9 @@
             if (t.loved) {
                 nameEl.appendChild(buildLovedHeart());
             }
+            if (t.grammy) {
+                nameEl.appendChild(buildGrammyBadge(t.grammy));
+            }
             meta.appendChild(nameEl);
             meta.appendChild(el("div", "artist", t.artist));
             li.appendChild(meta);
@@ -1054,6 +1090,8 @@
     var LISTEN_ICON_SVG = {
         spotify: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>',
         youtube: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 0C5.376 0 0 5.376 0 12s5.376 12 12 12 12-5.376 12-12S18.624 0 12 0zm0 19.104c-3.924 0-7.104-3.18-7.104-7.104S8.076 4.896 12 4.896s7.104 3.18 7.104 7.104-3.18 7.104-7.104 7.104zm0-13.332c-3.432 0-6.228 2.796-6.228 6.228S8.568 18.228 12 18.228s6.228-2.796 6.228-6.228S15.432 5.772 12 5.772zM9.684 15.54V8.46L15.816 12l-6.132 3.54z"/></svg>',
+        apple: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M23.994 6.124a9.23 9.23 0 0 0-.24-2.19c-.317-1.31-1.062-2.31-2.18-3.043A5.022 5.022 0 0 0 19.952.17 9.077 9.077 0 0 0 18.14 0H5.86l-.126.002c-.517.005-1.03.038-1.539.133-1.172.219-2.19.72-3.02 1.567C.414 2.616-.01 3.638 0 4.906c0 .064.014.128.014.192v13.814c0 .157.004.315.012.472.027.59.095 1.175.27 1.744.42 1.37 1.302 2.335 2.63 2.912.57.248 1.168.37 1.788.44.44.05.882.058 1.325.058h12.374c.51 0 1.014-.034 1.516-.11 1.202-.182 2.24-.67 3.052-1.59.65-.738 1.014-1.606 1.154-2.566.07-.483.093-.97.096-1.457.002-.12.008-.24.008-.36V6.124zM12.14 15.63c-.054.957-.724 1.682-1.68 1.788-.986.11-1.853-.512-2.058-1.48-.172-.82.287-1.69 1.09-2.05.26-.117.534-.15.814-.15.047 0 .093.003.14.005l.004-7.015c0-.286.102-.414.38-.47 1.396-.283 2.79-.567 4.187-.848.336-.067.49.047.49.39v6.58c0 .61-.013 1.22.002 1.828.028 1.102-.804 1.973-1.835 1.983-.98.01-1.766-.606-1.985-1.56-.14-.606.04-1.146.47-1.57.33-.327.75-.49 1.21-.46.236.014.46.075.67.19v-5.26c-1.167.237-2.333.472-3.5.71v6.389z"/></svg>',
+        amazon: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>',
     };
 
     function buildHoverListenIcon(service, serviceName, linkData) {
@@ -1074,6 +1112,12 @@
         }
         if (links.youtube && links.youtube.url) {
             container.appendChild(buildHoverListenIcon("youtube", "YouTube Music", links.youtube));
+        }
+        if (links.apple && links.apple.url) {
+            container.appendChild(buildHoverListenIcon("apple", "Apple Music", links.apple));
+        }
+        if (links.amazon && links.amazon.url) {
+            container.appendChild(buildHoverListenIcon("amazon", "Amazon Music", links.amazon));
         }
     }
 
@@ -1118,4 +1162,56 @@
             loadHoverListenLinks(row);
         }
     });
+
+    // --- Flip art tooltips downward when there's no room above them ---
+    // The default (.art-tooltip's base CSS) opens upward, which suits
+    // track rows since there's always a page's worth of room above them.
+    // The now-playing hero and previously-played thumb sit right at the
+    // top of the page though, so opening upward there would push the
+    // tooltip above the viewport and clip it — checked dynamically rather
+    // than assumed, since the tooltip's height varies with how much
+    // insights data a track has (rank/first-scrobbled/recency lines).
+    function positionArtTooltip(wrapper) {
+        var tooltip = wrapper.querySelector(".art-tooltip");
+        if (!tooltip) {
+            return;
+        }
+        var wrapperTop = wrapper.getBoundingClientRect().top;
+        var fitsAbove = wrapperTop - tooltip.offsetHeight - 20 >= 0;
+        wrapper.classList.toggle("art-hover-below", !fitsAbove);
+
+        // When flipped downward inside the now-playing hero, the tooltip
+        // overflows past the card's own bottom edge, overlapping the
+        // Favourite Tracks / Trending panel below. Both cards use
+        // backdrop-filter, and Chromium has a confirmed compositing bug
+        // where the panel's content bleeds through the tooltip wherever
+        // they overlap, regardless of z-index — not something CSS stacking
+        // order can fix. Briefly suppressing backdrop-filter on both sides
+        // while the tooltip is shown avoids it without moving anything.
+        setBlurSuppressed(!fitsAbove);
+    }
+
+    function setBlurSuppressed(suppressed) {
+        var hero = document.querySelector(".now-playing");
+        if (hero) {
+            hero.classList.toggle("blur-suppressed", suppressed);
+        }
+        document.querySelectorAll(".panels .panel").forEach(function (panel) {
+            panel.classList.toggle("blur-suppressed", suppressed);
+        });
+    }
+
+    document.addEventListener("mouseover", function (evt) {
+        var artHover = evt.target.closest && evt.target.closest(".art-hover");
+        if (artHover) {
+            positionArtTooltip(artHover);
+        }
+    });
+
+    var heroSection = document.querySelector(".now-playing");
+    if (heroSection) {
+        heroSection.addEventListener("mouseleave", function () {
+            setBlurSuppressed(false);
+        });
+    }
 })();

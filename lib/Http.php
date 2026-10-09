@@ -77,4 +77,45 @@ class Http
 
         return null;
     }
+
+    /**
+     * @param array<mixed> $payload sent as a JSON-encoded request body
+     */
+    public static function postJson(string $url, array $payload, array $headers = [], int $timeout = 8): ?string
+    {
+        $body = json_encode($payload);
+        $headers = array_merge(['Content-Type: application/json'], $headers);
+
+        if (function_exists('curl_init')) {
+            $ch = curl_init($url);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => $timeout,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $body,
+                CURLOPT_HTTPHEADER     => $headers,
+            ]);
+            $response = curl_exec($ch);
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            return ($response === false || $error) ? null : $response;
+        }
+
+        if (function_exists('file_get_contents') && ini_get('allow_url_fopen')) {
+            $context = stream_context_create([
+                'http' => [
+                    'method'  => 'POST',
+                    'timeout' => $timeout,
+                    'header'  => implode("\r\n", $headers),
+                    'content' => $body,
+                ],
+            ]);
+            $response = @file_get_contents($url, false, $context);
+
+            return $response === false ? null : $response;
+        }
+
+        return null;
+    }
 }

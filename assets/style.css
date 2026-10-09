@@ -109,7 +109,18 @@ body {
     border-radius: 20px;
     padding: 24px;
     margin-bottom: 32px;
-    transition: border-color var(--transition-slow);
+    transition: border-color var(--transition-slow), backdrop-filter 150ms ease;
+}
+
+/* Toggled by assets/app.js while the hero's art tooltip is open and
+   overlapping this card — see positionArtTooltip()/setBlurSuppressed() for
+   why: Chromium has a confirmed bug where a backdrop-filter element's
+   content bleeds through another backdrop-filter element positioned over
+   it, regardless of z-index. Dropping the blur on both sides for the
+   tooltip's duration avoids it without moving any layout. */
+.now-playing.blur-suppressed,
+.panel.blur-suppressed {
+    backdrop-filter: none;
 }
 
 .art-tile {
@@ -162,7 +173,7 @@ body {
     max-width: 260px;
     padding: 10px 12px;
     border-radius: 10px;
-    background: rgba(18, 18, 22, 0.97);
+    background: #121216;
     border: 1px solid var(--card-border);
     box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
     opacity: 0;
@@ -175,6 +186,16 @@ body {
 .art-hover:hover .art-tooltip {
     opacity: 1;
     transform: translateY(0);
+}
+
+/* Toggled by assets/app.js on hover when there's no room above the trigger
+   to open the tooltip upward (the default) without clipping it above the
+   viewport — see positionArtTooltip(). */
+.art-hover-below .art-tooltip {
+    bottom: auto;
+    top: 100%;
+    margin-bottom: 0;
+    margin-top: 10px;
 }
 
 .art-tooltip-track {
@@ -336,6 +357,24 @@ body {
     color: #ff3b6b;
 }
 
+.grammy-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex: none;
+    border-radius: 50%;
+    background: rgba(255, 196, 64, 0.16);
+    border: 1px solid rgba(255, 196, 64, 0.55);
+    box-shadow: 0 0 6px rgba(255, 196, 64, 0.35);
+}
+
+.grammy-icon {
+    display: block;
+    color: #ffc440;
+}
+
 .now-playing .track-artist {
     margin: 0;
     color: var(--fg-dim);
@@ -386,6 +425,14 @@ body {
 
 .listen-youtube svg {
     color: #ff0000;
+}
+
+.listen-apple svg {
+    color: #fa57c1;
+}
+
+.listen-amazon svg {
+    color: #00a8e1;
 }
 
 .prev-track {
@@ -641,6 +688,14 @@ body {
 
 .listen-icon.listen-youtube {
     color: #ff0000;
+}
+
+.listen-icon.listen-apple {
+    color: #fa57c1;
+}
+
+.listen-icon.listen-amazon {
+    color: #00a8e1;
 }
 
 .track-row .bar {

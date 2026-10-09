@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/GrammyAwards.php';
+
 /**
  * Builds the id => compute-closure map for every widget endpoint. Shared
  * between widgets.php (serves a widget on demand) and cron.php (pre-warms
@@ -29,6 +31,10 @@ class WidgetRegistry
 
     public static function handlers(LastFm $lastfm, Widgets $widgets, array $config, LibrarySync $library): array
     {
+        $spotify = new Spotify($config['spotify_client_id'] ?? '', $config['spotify_client_secret'] ?? '');
+        $appleMusic = new AppleMusic(__DIR__ . '/..');
+        $grammyAwards = new GrammyAwards(__DIR__ . '/..');
+
         return [
             'listening_clock' => fn() => $widgets->listeningClock(),
             'energy_curve'    => fn() => $widgets->energyCurve(),
@@ -50,7 +56,7 @@ class WidgetRegistry
 
                 return ['available' => !empty($genres), 'period' => $period, 'genres' => $genres];
             },
-            'tracks' => function () use ($lastfm, $library, $config) {
+            'tracks' => function () use ($lastfm, $library, $config, $spotify, $appleMusic, $grammyAwards) {
                 $period = LastFm::validUiPeriod($_GET['period'] ?? '');
                 $panel = ($_GET['panel'] ?? '') === 'trending' ? 'trending' : 'favourites';
                 $limit = (int) ($panel === 'trending' ? ($config['trend_limit'] ?? 8) : ($config['top_limit'] ?? 8));
@@ -67,9 +73,18 @@ class WidgetRegistry
                     $art = $lastfm->getTrackArt($artistName, $t['name'] ?? '') ?: LastFm::bestImage($t['image'] ?? []);
                     // Reuses the same cached track.getInfo lookup getTrackArt()
                     // just made, so this costs nothing extra.
+                    if ($art === '') {
+                        $match = $spotify->searchTrack($artistName, $t['name'] ?? '');
+                        $art = $match['art'] ?? '';
+                    }
+                    if ($art === '') {
+                        $appleMatch = $appleMusic->searchTrack($artistName, $t['name'] ?? '');
+                        $art = $appleMatch['art'] ?? '';
+                    }
                     $album = $lastfm->getTrackAlbum($artistName, $t['name'] ?? '');
                     $stats = $lastfm->getTrackStats($artistName, $t['name'] ?? '');
                     $insights = $library->trackInsights($artistName, $t['name'] ?? '', $tz);
+                    $award = $grammyAwards->findAward($artistName, $t['name'] ?? '');
 
                     $items[] = [
                         'rank'      => $i + 1,
@@ -83,6 +98,7 @@ class WidgetRegistry
                         'global_playcount' => $stats['playcount'],
                         'insights'  => $insights,
                         'loved'     => $stats['loved'],
+                        'grammy'    => $award,
                     ];
                 }
 

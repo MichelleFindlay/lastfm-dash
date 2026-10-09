@@ -12,6 +12,7 @@ require __DIR__ . '/lib/LastFm.php';
 require __DIR__ . '/lib/VersionCheck.php';
 require __DIR__ . '/lib/ListenLinks.php';
 require __DIR__ . '/lib/LibrarySync.php';
+require __DIR__ . '/lib/GrammyAwards.php';
 
 function e(?string $value): string
 {
@@ -101,10 +102,13 @@ $config += [
     'cron_enabled' => false,
     'cron_secret'  => '',
 
-    // Quick-listen links (Spotify / YouTube Music) on the current track and
-    // on hover over any track row. Work out of the box as plain search
-    // links; adding these upgrades them to a verified direct link to the
-    // exact track — see lib/ListenLinks.php for where to get each one.
+    // Quick-listen links (Spotify / YouTube Music / Apple Music / Amazon
+    // Music) on the current track and on hover over any track row. Work out
+    // of the box as plain search links; adding these upgrades Spotify/
+    // YouTube to a verified direct link to the exact track — see
+    // lib/ListenLinks.php for where to get each one. Apple Music needs no
+    // credentials at all; Amazon Music has no public search API, so it's
+    // always a search link.
     'spotify_client_id'     => '',
     'spotify_client_secret' => '',
     'youtube_api_key'       => '',
@@ -127,6 +131,9 @@ $apiError = false;
 if (!$needsSetup) {
     $lastfm = new LastFm($config['api_key'], $config['username'], (int) $config['cache_ttl']);
     $listenLinks = new ListenLinks($config, __DIR__);
+    $spotify = new Spotify($config['spotify_client_id'] ?? '', $config['spotify_client_secret'] ?? '');
+    $appleMusic = new AppleMusic(__DIR__);
+    $grammyAwards = new GrammyAwards(__DIR__);
     $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
     $library = new LibrarySync($lastfm, $config['username']);
 
@@ -137,7 +144,7 @@ if (!$needsSetup) {
     if ($recentTrack) {
         $artist = $recentTrack['artist']['#text'] ?? ($recentTrack['artist']['name'] ?? '');
         $album = $recentTrack['album']['#text'] ?? '';
-        $art = LastFm::bestImage($recentTrack['image'] ?? []);
+        $art = $spotify->resolveTrackArt($lastfm, $artist, $recentTrack['name'] ?? '', $recentTrack['image'] ?? [], $appleMusic);
         $listen = $listenLinks->forTrack($artist, $recentTrack['name'] ?? '');
 
         $nowPlaying = [
@@ -150,6 +157,7 @@ if (!$needsSetup) {
             'track_stats' => $lastfm->getTrackStats($artist, $recentTrack['name'] ?? ''),
             'insights'    => $library->trackInsights($artist, $recentTrack['name'] ?? '', $tz),
             'loved'       => ($recentTrack['loved'] ?? '0') === '1',
+            'grammy'      => $grammyAwards->findAward($artist, $recentTrack['name'] ?? ''),
         ];
     } else {
         $apiError = true;
@@ -166,10 +174,11 @@ if (!$needsSetup) {
             'name'        => $previousTrackRaw['name'] ?? '',
             'artist'      => $previousArtist,
             'album'       => $previousTrackRaw['album']['#text'] ?? '',
-            'image'       => LastFm::bestImage($previousTrackRaw['image'] ?? []),
+            'image'       => $spotify->resolveTrackArt($lastfm, $previousArtist, $previousTrackRaw['name'] ?? '', $previousTrackRaw['image'] ?? [], $appleMusic),
             'track_stats' => $lastfm->getTrackStats($previousArtist, $previousTrackRaw['name'] ?? ''),
             'insights'    => $library->trackInsights($previousArtist, $previousTrackRaw['name'] ?? '', $tz),
             'loved'       => ($previousTrackRaw['loved'] ?? '0') === '1',
+            'grammy'      => $grammyAwards->findAward($previousArtist, $previousTrackRaw['name'] ?? ''),
         ];
     }
 
@@ -294,7 +303,7 @@ if (!empty($config['github_repo'])) {
                     ? '<span class="eq"><span></span><span></span><span></span></span> Now scrobbling'
                     : 'Last played' ?>
             </div>
-            <p class="track-name"><span class="track-name-text" data-track-name><?= e($nowPlaying['name'] ?? 'No recent tracks') ?></span><?= renderLovedHeart($nowPlaying['loved'] ?? false, 'data-loved-heart') ?></p>
+            <p class="track-name"><span class="track-name-text" data-track-name><?= e($nowPlaying['name'] ?? 'No recent tracks') ?></span><?= renderLovedHeart($nowPlaying['loved'] ?? false, 'data-loved-heart') ?><?= renderGrammyBadge($nowPlaying['grammy'] ?? null, 'data-grammy-badge') ?></p>
             <p class="track-artist" data-track-artist><?= e($nowPlaying['artist'] ?? '') ?></p>
             <p class="track-album" data-track-album><?= e($nowPlaying['album'] ?? '') ?></p>
             <div class="listen-links" data-listen-links>
@@ -317,6 +326,24 @@ if (!empty($config['github_repo'])) {
                     </svg>
                     <span class="listen-label"><?= !empty($listen['youtube']['verified']) ? 'Listen' : 'Search' ?></span>
                 </a>
+                <a class="listen-link listen-apple" data-listen-apple
+                   href="<?= e($listen['apple']['url'] ?? '') ?>" target="_blank" rel="noopener"
+                   title="<?= !empty($listen['apple']['verified']) ? 'Listen on Apple Music' : 'Search on Apple Music' ?>"
+                   style="<?= empty($listen['apple']['url']) ? 'display:none' : '' ?>">
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                        <path fill="currentColor" d="M23.994 6.124a9.23 9.23 0 0 0-.24-2.19c-.317-1.31-1.062-2.31-2.18-3.043A5.022 5.022 0 0 0 19.952.17 9.077 9.077 0 0 0 18.14 0H5.86l-.126.002c-.517.005-1.03.038-1.539.133-1.172.219-2.19.72-3.02 1.567C.414 2.616-.01 3.638 0 4.906c0 .064.014.128.014.192v13.814c0 .157.004.315.012.472.027.59.095 1.175.27 1.744.42 1.37 1.302 2.335 2.63 2.912.57.248 1.168.37 1.788.44.44.05.882.058 1.325.058h12.374c.51 0 1.014-.034 1.516-.11 1.202-.182 2.24-.67 3.052-1.59.65-.738 1.014-1.606 1.154-2.566.07-.483.093-.97.096-1.457.002-.12.008-.24.008-.36V6.124zM12.14 15.63c-.054.957-.724 1.682-1.68 1.788-.986.11-1.853-.512-2.058-1.48-.172-.82.287-1.69 1.09-2.05.26-.117.534-.15.814-.15.047 0 .093.003.14.005l.004-7.015c0-.286.102-.414.38-.47 1.396-.283 2.79-.567 4.187-.848.336-.067.49.047.49.39v6.58c0 .61-.013 1.22.002 1.828.028 1.102-.804 1.973-1.835 1.983-.98.01-1.766-.606-1.985-1.56-.14-.606.04-1.146.47-1.57.33-.327.75-.49 1.21-.46.236.014.46.075.67.19v-5.26c-1.167.237-2.333.472-3.5.71v6.389z"/>
+                    </svg>
+                    <span class="listen-label"><?= !empty($listen['apple']['verified']) ? 'Listen' : 'Search' ?></span>
+                </a>
+                <a class="listen-link listen-amazon" data-listen-amazon
+                   href="<?= e($listen['amazon']['url'] ?? '') ?>" target="_blank" rel="noopener"
+                   title="Search on Amazon Music"
+                   style="<?= empty($listen['amazon']['url']) ? 'display:none' : '' ?>">
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                        <path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/>
+                    </svg>
+                    <span class="listen-label">Search</span>
+                </a>
             </div>
         </div>
         <?php $prevInitial = strtoupper(substr($previousTrack['name'] ?? '?', 0, 1)); ?>
@@ -338,7 +365,7 @@ if (!empty($config['github_repo'])) {
             </div>
             <div class="prev-track-info">
                 <div class="prev-track-label">Previously played</div>
-                <div class="prev-track-name"><span class="track-name-text" data-prev-track-name><?= e($previousTrack['name'] ?? '') ?></span><?= renderLovedHeart($previousTrack['loved'] ?? false, 'data-prev-loved-heart') ?></div>
+                <div class="prev-track-name"><span class="track-name-text" data-prev-track-name><?= e($previousTrack['name'] ?? '') ?></span><?= renderLovedHeart($previousTrack['loved'] ?? false, 'data-prev-loved-heart') ?><?= renderGrammyBadge($previousTrack['grammy'] ?? null, 'data-prev-grammy-badge') ?></div>
                 <div class="prev-track-artist" data-prev-track-artist><?= e($previousTrack['artist'] ?? '') ?></div>
             </div>
         </div>
@@ -455,7 +482,28 @@ if (!empty($config['github_repo'])) {
             . '<path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></span>';
     }
 
-    function renderTrackListMarkup(array $tracks, ?LastFm $lastfm, string $emptyMessage, ?LibrarySync $library = null, ?DateTimeZone $tz = null): void
+    /**
+     * The little trophy icon marking a track as a Grammy Award winner (see
+     * lib/GrammyAwards.php). Always rendered (hidden via inline style when
+     * there's no award, not omitted) when $attr is given, so JS can toggle
+     * it in place on the next poll; omitted entirely for the static
+     * track-row case.
+     */
+    function renderGrammyBadge(?array $award, string $attr = ''): string
+    {
+        if (!$award && $attr === '') {
+            return '';
+        }
+
+        $title = $award ? 'Grammy Award: ' . $award['category'] . ' (' . $award['year'] . ')' : '';
+
+        return '<span class="grammy-badge"' . ($attr !== '' ? ' ' . $attr : '') . ($award ? '' : ' style="display:none"')
+            . ($title !== '' ? ' title="' . e($title) . '"' : '') . '>'
+            . '<svg class="grammy-icon" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><title>' . e($title) . '</title>'
+            . '<path fill="currentColor" d="M7 2a1 1 0 0 0-1 1v2H4a1 1 0 0 0-1 1v2c0 2.21 1.79 4 4 4 .34 1.6 1.63 2.86 3.25 3.17V18H9a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-2a1 1 0 0 0-1-1h-1.25v-2.83c1.62-.31 2.91-1.57 3.25-3.17 2.21 0 4-1.79 4-4V6a1 1 0 0 0-1-1h-2V3a1 1 0 0 0-1-1H7zM5 7h1v1.83A2.5 2.5 0 0 1 5 7zm13 0v1.83A2.5 2.5 0 0 0 19 7h-1z"/></svg></span>';
+    }
+
+    function renderTrackListMarkup(array $tracks, ?LastFm $lastfm, string $emptyMessage, ?LibrarySync $library = null, ?DateTimeZone $tz = null, ?Spotify $spotify = null, ?AppleMusic $appleMusic = null, ?GrammyAwards $grammyAwards = null): void
     {
         if (empty($tracks)) {
             echo '<p class="empty-state">' . e($emptyMessage) . '</p>';
@@ -469,12 +517,21 @@ if (!empty($config['github_repo'])) {
             $pct = max(4, round($playcount / $maxPlaycount * 100));
             $artistName = $t['artist']['name'] ?? '';
             $art = $lastfm->getTrackArt($artistName, $t['name'] ?? '') ?: LastFm::bestImage($t['image'] ?? []);
+            if ($art === '' && $spotify) {
+                $match = $spotify->searchTrack($artistName, $t['name'] ?? '');
+                $art = $match['art'] ?? '';
+            }
+            if ($art === '' && $appleMusic) {
+                $appleMatch = $appleMusic->searchTrack($artistName, $t['name'] ?? '');
+                $art = $appleMatch['art'] ?? '';
+            }
             // Reuses the same cached track.getInfo lookup getTrackArt() just
             // made above, so this costs nothing extra — top-tracks lists
             // don't carry album info or listen-count stats themselves.
             $album = $lastfm->getTrackAlbum($artistName, $t['name'] ?? '');
             $stats = $lastfm->getTrackStats($artistName, $t['name'] ?? '');
             $insights = ($library && $tz) ? $library->trackInsights($artistName, $t['name'] ?? '', $tz) : null;
+            $award = $grammyAwards ? $grammyAwards->findAward($artistName, $t['name'] ?? '') : null;
             $initial = strtoupper(substr($t['name'] ?? '?', 0, 1));
             // Last.fm's API occasionally lists an image URL that 404s on its
             // own CDN, so fall back to the letter placeholder on load
@@ -493,7 +550,7 @@ if (!empty($config['github_repo'])) {
             echo '<li class="track-row" data-artist="' . e($artistName) . '" data-track="' . e($t['name'] ?? '') . '">'
                 . '<span class="rank">' . ($i + 1) . '</span>'
                 . '<span class="art-hover"><span class="thumb">' . $thumb . '</span>' . $tooltip . '</span>'
-                . '<span class="meta"><div class="name"><span class="track-name-text">' . e($t['name'] ?? '') . '</span>' . renderLovedHeart($stats['loved']) . '</div><div class="artist">' . e($artistName) . '</div></span>'
+                . '<span class="meta"><div class="name"><span class="track-name-text">' . e($t['name'] ?? '') . '</span>' . renderLovedHeart($stats['loved']) . renderGrammyBadge($award) . '</div><div class="artist">' . e($artistName) . '</div></span>'
                 . '<span class="count">' . number_format($playcount) . ' plays<div class="bar"><div class="bar-fill" style="width: ' . $pct . '%"></div></div></span>'
                 . '<span class="listen-links-hover" data-listen-links-hover></span>'
                 . '</li>';
@@ -511,7 +568,7 @@ if (!empty($config['github_repo'])) {
                 <?php endif; ?>
             </div>
             <div data-period-content="favourites">
-                <?php renderTrackListMarkup($topTracks, $lastfm, 'No tracks for this period yet.', $library ?? null, $tz ?? null); ?>
+                <?php renderTrackListMarkup($topTracks, $lastfm, 'No tracks for this period yet.', $library ?? null, $tz ?? null, $spotify ?? null, $appleMusic ?? null, $grammyAwards ?? null); ?>
             </div>
         </section>
 
@@ -523,7 +580,7 @@ if (!empty($config['github_repo'])) {
                 <?php endif; ?>
             </div>
             <div data-period-content="trending">
-                <?php renderTrackListMarkup($trending, $lastfm, 'No tracks for this period yet.', $library ?? null, $tz ?? null); ?>
+                <?php renderTrackListMarkup($trending, $lastfm, 'No tracks for this period yet.', $library ?? null, $tz ?? null, $spotify ?? null, $appleMusic ?? null, $grammyAwards ?? null); ?>
             </div>
         </section>
     </div>
