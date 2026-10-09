@@ -94,8 +94,14 @@ class LastFm
      * request — used when a page request needs to know "do we already know
      * this" without risking a slow/expensive live call of its own; a
      * background job (cron.php) is what actually fetches missing ones.
+     * Pass $isCacheable to reject an otherwise well-formed response (no
+     * "error" key, so the generic guard below doesn't catch it) from being
+     * persisted — e.g. getInfo() uses this since Last.fm occasionally
+     * returns a technically valid but empty/zeroed user object during a
+     * backend hiccup on their end, which would otherwise get cached as
+     * truth for the full TTL.
      */
-    public function call(string $method, array $params = [], ?int $ttlOverride = null, bool $cacheOnly = false): ?array
+    public function call(string $method, array $params = [], ?int $ttlOverride = null, bool $cacheOnly = false, ?callable $isCacheable = null): ?array
     {
         $ttl = $ttlOverride ?? $this->cacheTtl;
 
@@ -131,7 +137,7 @@ class LastFm
             return null;
         }
 
-        if ($ttl > 0) {
+        if ($ttl > 0 && ($isCacheable === null || $isCacheable($decoded))) {
             @file_put_contents($cacheFile, $response);
         }
 
@@ -148,7 +154,14 @@ class LastFm
      */
     public function getInfo(): ?array
     {
-        $data = $this->call('user.getinfo', [], 900);
+        $data = $this->call('user.getinfo', [], 900, false, function ($decoded) {
+            // A playcount of exactly zero for an existing, named account is
+            // far more likely to be an incomplete response from a transient
+            // hiccup on Last.fm's end than a genuine brand-new listener —
+            // don't cache it for 15 minutes of shown-as-zero stats; let the
+            // next request try fresh instead.
+            return (int) ($decoded['user']['playcount'] ?? 0) > 0;
+        });
 
         return $data['user'] ?? null;
     }
