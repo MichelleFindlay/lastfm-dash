@@ -109,7 +109,18 @@ body {
     border-radius: 20px;
     padding: 24px;
     margin-bottom: 32px;
-    transition: border-color var(--transition-slow);
+    transition: border-color var(--transition-slow), backdrop-filter 150ms ease;
+}
+
+/* Toggled by assets/app.js while the hero's art tooltip is open and
+   overlapping this card — see positionArtTooltip()/setBlurSuppressed() for
+   why: Chromium has a confirmed bug where a backdrop-filter element's
+   content bleeds through another backdrop-filter element positioned over
+   it, regardless of z-index. Dropping the blur on both sides for the
+   tooltip's duration avoids it without moving any layout. */
+.now-playing.blur-suppressed,
+.panel.blur-suppressed {
+    backdrop-filter: none;
 }
 
 .art-tile {
@@ -141,6 +152,121 @@ body {
     font-weight: 700;
     color: #fff;
     text-shadow: 0 1px 4px rgba(0, 0, 0, 0.7);
+}
+
+/* Hover-info tooltip, shared by the now-playing hero art, the previously-
+   played thumb, and every track-row thumbnail. The wrapper carries
+   position:relative (and flex:none, harmless outside a flex container) so
+   the tooltip — not clipped by the art's own overflow:hidden, since it's a
+   sibling rather than a child of it — can anchor against it. */
+.art-hover {
+    position: relative;
+    flex: none;
+}
+
+.art-tooltip {
+    position: absolute;
+    bottom: 100%;
+    left: 0;
+    margin-bottom: 10px;
+    min-width: 170px;
+    max-width: 260px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    background: #121216;
+    border: 1px solid var(--card-border);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(4px);
+    transition: opacity 150ms ease, transform 150ms ease;
+    z-index: 30;
+}
+
+.art-hover:hover .art-tooltip {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* Toggled by assets/app.js on hover when there's no room above the trigger
+   to open the tooltip upward (the default) without clipping it above the
+   viewport — see positionArtTooltip(). */
+.art-hover-below .art-tooltip {
+    bottom: auto;
+    top: 100%;
+    margin-bottom: 0;
+    margin-top: 10px;
+}
+
+.art-tooltip-track {
+    font-size: 0.85rem;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.art-tooltip-artist {
+    margin-top: 2px;
+    font-size: 0.78rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.art-tooltip-album {
+    margin-top: 2px;
+    font-size: 0.74rem;
+    color: var(--fg-dim);
+    opacity: 0.75;
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.art-tooltip-stats {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.72rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+}
+
+.art-tooltip-you {
+    margin-top: 3px;
+    font-size: 0.72rem;
+    color: var(--accent);
+    font-weight: 600;
+    white-space: nowrap;
+    transition: color var(--color-transition);
+}
+
+.art-tooltip-rank {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 0.72rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+}
+
+.art-tooltip-first {
+    margin-top: 3px;
+    font-size: 0.72rem;
+    color: var(--fg-dim);
+    white-space: nowrap;
+}
+
+.art-tooltip-recency {
+    margin-top: 3px;
+    font-size: 0.74rem;
+    color: var(--accent);
+    font-weight: 700;
+    white-space: normal;
+    transition: color var(--color-transition);
 }
 
 .now-playing .info {
@@ -187,13 +313,66 @@ body {
     50% { height: 12px; }
 }
 
+/* .track-name is a flex row (truncating name-text + an always-visible
+   heart) rather than letting the heart sit inside the name's own
+   white-space:nowrap/ellipsis box, where a long, truncated name would
+   push it out of view entirely. */
 .now-playing .track-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin: 0 0 4px;
+}
+
+.now-playing .track-name .track-name-text {
     font-size: 1.6rem;
     font-weight: 700;
-    margin: 0 0 4px;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+}
+
+/* The little "loved on Last.fm" badge, used inline next to a track name
+   wherever one's shown — the hero, the previously-played card, and every
+   Favourite Tracks/Trending row. A tinted, bordered circle rather than a
+   bare icon so it actually catches the eye among everything else on the
+   row instead of blending into the text. */
+.loved-heart-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex: none;
+    border-radius: 50%;
+    background: rgba(255, 59, 107, 0.16);
+    border: 1px solid rgba(255, 59, 107, 0.55);
+    box-shadow: 0 0 6px rgba(255, 59, 107, 0.35);
+}
+
+.loved-heart {
+    display: block;
+    color: #ff3b6b;
+}
+
+.grammy-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    flex: none;
+    border-radius: 50%;
+    background: rgba(255, 196, 64, 0.16);
+    border: 1px solid rgba(255, 196, 64, 0.55);
+    box-shadow: 0 0 6px rgba(255, 196, 64, 0.35);
+}
+
+.grammy-icon {
+    display: block;
+    color: #ffc440;
 }
 
 .now-playing .track-artist {
@@ -246,6 +425,14 @@ body {
 
 .listen-youtube svg {
     color: #ff0000;
+}
+
+.listen-apple svg {
+    color: #fa57c1;
+}
+
+.listen-amazon svg {
+    color: #00a8e1;
 }
 
 .prev-track {
@@ -301,8 +488,16 @@ body {
 }
 
 .prev-track-name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.prev-track-name .track-name-text {
     font-size: 0.88rem;
     font-weight: 600;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -416,7 +611,15 @@ body {
 }
 
 .track-row .meta .name {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.track-row .meta .name .track-name-text {
     font-size: 0.9rem;
+    min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -485,6 +688,14 @@ body {
 
 .listen-icon.listen-youtube {
     color: #ff0000;
+}
+
+.listen-icon.listen-apple {
+    color: #fa57c1;
+}
+
+.listen-icon.listen-amazon {
+    color: #00a8e1;
 }
 
 .track-row .bar {

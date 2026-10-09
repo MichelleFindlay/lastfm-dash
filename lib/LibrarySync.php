@@ -27,6 +27,8 @@ class LibrarySync
     private LastFm $lastfm;
     private string $file;
     private ?array $stateCache = null;
+    private ?array $trackRankCache = null;
+    private ?array $artistRankCache = null;
 
     public function __construct(LastFm $lastfm, string $user)
     {
@@ -414,5 +416,163 @@ class LibrarySync
         }
 
         return ['tagged' => $tagged, 'total_artists' => count($counts)];
+    }
+
+    /**
+     * Every all-time-local-playcount rank in one pass: memoized per
+     * instance, and additionally cached to a file for 15 minutes, since
+     * api.php calls into this on every poll (every ~10s by default) — a
+     * large library's full scrobble list is cheap to scan/sort once, not
+     * worth redoing on every single poll. An "all-time rank" claim only
+     * means something once the full history is backfilled.
+     *
+     * @return array{ranks: array<string,int>, total: int}|null
+     */
+    private function computeAllTimeRanking(bool $byArtist): ?array
+    {
+        $cache = $byArtist ? $this->artistRankCache : $this->trackRankCache;
+        if ($cache !== null) {
+            return $cache;
+        }
+
+        $state = $this->load();
+        if (!$state['backfill_complete']) {
+            return null;
+        }
+
+        $cacheFile = $this->file . ($byArtist ? '.artist_ranks.json' : '.track_ranks.json');
+        if (is_file($cacheFile) && (time() - filemtime($cacheFile)) < 900) {
+            $cached = json_decode((string) file_get_contents($cacheFile), true);
+            if (is_array($cached) && isset($cached['ranks'], $cached['total'])) {
+                if ($byArtist) {
+                    $this->artistRankCache = $cached;
+                } else {
+                    $this->trackRankCache = $cached;
+                }
+
+                return $cached;
+            }
+        }
+
+        $counts = [];
+        foreach ($state['scrobbles'] as [$artist, $name, ]) {
+            $key = $byArtist ? strtolower($artist) : (strtolower($artist) . "\x01" . strtolower($name));
+            $counts[$key] = ($counts[$key] ?? 0) + 1;
+        }
+        arsort($counts);
+
+        $ranks = [];
+        $rank = 0;
+        foreach ($counts as $key => $count) {
+            $ranks[$key] = ++$rank;
+        }
+
+        $result = ['ranks' => $ranks, 'total' => count($ranks)];
+        @file_put_contents($cacheFile, json_encode($result));
+
+        if ($byArtist) {
+            $this->artistRankCache = $result;
+        } else {
+            $this->trackRankCache = $result;
+        }
+
+        return $result;
+    }
+
+    private static function ordinal(int $n): string
+    {
+        if ($n % 100 >= 11 && $n % 100 <= 13) {
+            return $n . 'th';
+        }
+
+        return $n . (['th', 'st', 'nd', 'rd'][$n % 10] ?? 'th');
+    }
+
+    private static function humanDuration(int $seconds): string
+    {
+        $days = intdiv($seconds, 86400);
+        if ($days >= 365) {
+            $years = intdiv($days, 365);
+            return $years . ' year' . ($years === 1 ? '' : 's');
+        }
+        if ($days >= 30) {
+            $months = intdiv($days, 30);
+            return $months . ' month' . ($months === 1 ? '' : 's');
+        }
+
+        return $days . ' day' . ($days === 1 ? '' : 's');
+    }
+
+    /**
+     * All-time rank, first-scrobbled date, and a human recency/streak line
+     * for this exact track — everything the hover tooltip's "insights"
+     * section needs, in one call. Every piece is independently omitted
+     * (null, or left out of the recency line) when local coverage can't
+     * support it honestly yet, rather than guessed at from a partial
+     * history: all-time rank and "first scrobbled" need the full history
+     * backfilled; "Nth play this week" only needs coverage back to the
+     * start of this week, a much lower bar usually met almost immediately.
+     *
+     * @return array{
+     *     track_rank: array{rank:int, total:int}|null,
+     *     artist_rank: array{rank:int, total:int}|null,
+     *     first_scrobbled: int|null,
+     *     recency: string|null
+     * }
+     */
+    public function trackInsights(string $artist, string $name, DateTimeZone $tz): array
+    {
+        $insights = ['track_rank' => null, 'artist_rank' => null, 'first_scrobbled' => null, 'recency' => null];
+
+        $trackKey = strtolower($artist) . "\x01" . strtolower($name);
+        $trackRanking = $this->computeAllTimeRanking(false);
+        if ($trackRanking !== null && isset($trackRanking['ranks'][$trackKey])) {
+            $insights['track_rank'] = ['rank' => $trackRanking['ranks'][$trackKey], 'total' => $trackRanking['total']];
+        }
+
+        $artistRanking = $this->computeAllTimeRanking(true);
+        if ($artistRanking !== null && isset($artistRanking['ranks'][strtolower($artist)])) {
+            $insights['artist_rank'] = ['rank' => $artistRanking['ranks'][strtolower($artist)], 'total' => $artistRanking['total']];
+        }
+
+        $state = $this->load();
+        $artistLower = strtolower($artist);
+        $nameLower = strtolower($name);
+        $allTimestamps = [];
+        foreach ($state['scrobbles'] as [$a, $n, $ts]) {
+            if (strtolower($a) === $artistLower && strtolower($n) === $nameLower) {
+                $allTimestamps[] = $ts;
+            }
+        }
+        sort($allTimestamps);
+
+        if ($state['backfill_complete'] && !empty($allTimestamps)) {
+            $insights['first_scrobbled'] = $allTimestamps[0];
+
+            $total = count($allTimestamps);
+            if ($total === 1) {
+                $insights['recency'] = "first time you've scrobbled this";
+            } else {
+                $gapSeconds = $allTimestamps[$total - 1] - $allTimestamps[$total - 2];
+                if ($gapSeconds >= 30 * 86400) {
+                    $insights['recency'] = 'first play in ' . self::humanDuration($gapSeconds);
+                }
+            }
+        }
+
+        if ($insights['recency'] === null) {
+            $weekStart = self::periodStart('this_week', $tz);
+            $thisWeekCount = 0;
+            foreach ($allTimestamps as $ts) {
+                if ($ts >= $weekStart) {
+                    $thisWeekCount++;
+                }
+            }
+            if ($this->covers($state, $weekStart) && $thisWeekCount >= 2) {
+                $insights['recency'] = self::ordinal($thisWeekCount) . ' play this week';
+            }
+        }
+
+        return $insights;
     }
 }

@@ -2,16 +2,31 @@
 
 require_once __DIR__ . '/Http.php';
 require_once __DIR__ . '/Spotify.php';
+require_once __DIR__ . '/AppleMusic.php';
 
 /**
- * Quick-listen links for a track on Spotify and YouTube Music, so you don't
- * have to leave the dashboard and search for it yourself.
+ * Quick-listen links for a track on Spotify, YouTube Music, Apple Music,
+ * and Amazon Music, so you don't have to leave the dashboard and search
+ * for it yourself.
  *
  * Works with zero configuration: each service gets a plain search-results
  * link ("search" — takes you to a results page, not the exact track).
  * If you provide API credentials in config.php, it upgrades to a verified
  * direct link to the exact track/video ("direct") via a real lookup,
  * cached for 30 days per track since a track's link doesn't change.
+ *
+ * Amazon Music has no public search API at all (unlike Apple's free iTunes
+ * Search API) and isn't a documented, credentialed integration like
+ * Spotify/YouTube either — there's simply nothing to verify against, so it
+ * always gets the plain search-results link.
+ *
+ * Apple Music needs no credentials at all: it's resolved via Apple's public,
+ * unauthenticated iTunes Search API (itunes.apple.com/search). That API only
+ * takes a loose free-text term rather than separate artist/track fields, so
+ * it occasionally ranks an unrelated same-titled track above the real match
+ * (or omits it) — handled by only accepting a result whose artist name
+ * actually matches ours, so a genuine miss falls back to the search link
+ * instead of risking a confidently wrong one.
  *
  * Spotify needs a free Client ID/Secret from
  * https://developer.spotify.com/dashboard (Client Credentials flow — no
@@ -35,11 +50,13 @@ require_once __DIR__ . '/Spotify.php';
 class ListenLinks
 {
     private array $config;
+    private string $rootDir;
     private string $cacheDir;
 
     public function __construct(array $config, string $rootDir)
     {
         $this->config = $config;
+        $this->rootDir = $rootDir;
         $this->cacheDir = $rootDir . '/cache';
 
         if (!is_dir($this->cacheDir)) {
@@ -50,7 +67,9 @@ class ListenLinks
     /**
      * @return array{
      *     spotify: array{url: string, verified: bool},
-     *     youtube: array{url: string, verified: bool}
+     *     youtube: array{url: string, verified: bool},
+     *     apple: array{url: string, verified: bool},
+     *     amazon: array{url: string, verified: bool}
      * }
      */
     public function forTrack(string $artist, string $track): array
@@ -59,12 +78,16 @@ class ListenLinks
             return [
                 'spotify' => ['url' => '', 'verified' => false],
                 'youtube' => ['url' => '', 'verified' => false],
+                'apple'   => ['url' => '', 'verified' => false],
+                'amazon'  => ['url' => '', 'verified' => false],
             ];
         }
 
         return [
             'spotify' => $this->spotifyLink($artist, $track),
             'youtube' => $this->youtubeLink($artist, $track),
+            'apple'   => $this->appleMusicLink($artist, $track),
+            'amazon'  => $this->amazonMusicLink($artist, $track),
         ];
     }
 
@@ -77,42 +100,14 @@ class ListenLinks
             return ['url' => $searchFallback, 'verified' => false];
         }
 
-        $cacheKey = 'listen_spotify_' . md5(strtolower($artist . '|' . $track));
-        $cached = $this->readCache($cacheKey, 2592000);
-        if ($cached !== null) {
-            return $cached['url']
-                ? ['url' => $cached['url'], 'verified' => true]
-                : ['url' => $searchFallback, 'verified' => false];
-        }
+        // Spotify::searchTrack() carries its own 30-day cache and is shared
+        // with album-art fallback resolution, so looking up a track here
+        // that art resolution already looked up (or vice versa) costs one
+        // Spotify search total, not two.
+        $match = $spotify->searchTrack($artist, $track);
 
-        $token = $spotify->getToken();
-        if ($token === null) {
-            // Couldn't even authenticate — an infrastructure hiccup, not a
-            // genuine "no match". Don't cache it, so the next request tries
-            // fresh instead of being stuck on the search fallback for 30
-            // days over a transient failure.
-            return ['url' => $searchFallback, 'verified' => false];
-        }
-
-        $query = 'track:' . $track . ' artist:' . $artist;
-        $apiUrl = 'https://api.spotify.com/v1/search?type=track&limit=1&q=' . rawurlencode($query);
-        $response = Http::get($apiUrl, ['Authorization: Bearer ' . $token]);
-
-        if ($response === null) {
-            // The request itself failed (network error, Spotify outage,
-            // etc.) — same reasoning as above.
-            return ['url' => $searchFallback, 'verified' => false];
-        }
-
-        $data = json_decode($response, true);
-        $url = $data['tracks']['items'][0]['external_urls']['spotify'] ?? null;
-
-        // Only reaching here means Spotify gave a real, complete answer —
-        // worth caching either way, including a genuine "no match".
-        $this->writeCache($cacheKey, ['url' => $url]);
-
-        return $url
-            ? ['url' => $url, 'verified' => true]
+        return ($match !== null && $match['url'] !== '')
+            ? ['url' => $match['url'], 'verified' => true]
             : ['url' => $searchFallback, 'verified' => false];
     }
 
@@ -164,6 +159,27 @@ class ListenLinks
         return $url
             ? ['url' => $url, 'verified' => true]
             : ['url' => $searchFallback, 'verified' => false];
+    }
+
+    private function appleMusicLink(string $artist, string $track): array
+    {
+        $searchFallback = 'https://music.apple.com/us/search?term=' . rawurlencode($artist . ' ' . $track);
+
+        // AppleMusic::searchTrack() carries its own 30-day cache and is
+        // shared with album-art fallback resolution, so looking up a track
+        // here that art resolution already looked up (or vice versa) costs
+        // one iTunes search total, not two.
+        $appleMusic = new AppleMusic($this->rootDir);
+        $match = $appleMusic->searchTrack($artist, $track);
+
+        return ($match !== null && $match['url'] !== '')
+            ? ['url' => $match['url'], 'verified' => true]
+            : ['url' => $searchFallback, 'verified' => false];
+    }
+
+    private function amazonMusicLink(string $artist, string $track): array
+    {
+        return ['url' => 'https://music.amazon.com/search/' . rawurlencode($artist . ' ' . $track), 'verified' => false];
     }
 
     /**

@@ -1,12 +1,15 @@
 <?php
 
 /**
- * Pre-warms the insight-widget, Genre Breakdown, and lifetime-stats caches
- * on a schedule, so visitors always get an already-cached response instead
- * of triggering a slow cold computation on their own page load (some
- * widgets sample deep into your library and can take a minute or more on a
- * cache miss — see lib/Widgets.php — and Genre Breakdown makes one
- * artist.gettoptags call per top artist, per period).
+ * Pre-warms the insight-widget, Genre Breakdown, Favourite Tracks/Trending,
+ * and lifetime-stats caches on a schedule, so visitors always get an
+ * already-cached response instead of triggering a slow cold computation on
+ * their own page load (some widgets sample deep into your library and can
+ * take a minute or more on a cache miss — see lib/Widgets.php — Genre
+ * Breakdown makes one artist.gettoptags call per top artist per period, and
+ * each not-yet-seen track in Favourite Tracks/Trending costs a handful of
+ * live lookups of its own — album art fallback via Spotify/Apple Music, a
+ * Grammy Award check — multiplied across every period x panel combination).
  *
  * Also grows a local, compressed copy of your full scrobble history (see
  * lib/LibrarySync.php) a bounded batch at a time, so Favourite Tracks /
@@ -143,6 +146,28 @@ foreach (['all_time', 'this_year', 'this_month', 'this_week', 'today'] as $perio
         $refreshed[] = 'genre_' . $period;
     } catch (Throwable $e) {
         $failed[] = 'genre_' . $period;
+    }
+}
+
+// Favourite Tracks / Trending — pre-warm every period x panel combination
+// the picker offers, same reasoning as Genre Breakdown above: each track
+// not seen before costs a handful of live lookups (album art fallback via
+// Spotify/Apple Music, Grammy Award lookup), so this keeps that cost in the
+// background instead of on whoever's page load happens to hit a new track
+// first — index.php's own server-rendered Favourite Tracks/Trending panels
+// share these same underlying per-artist/per-track caches (keyed by artist
+// and track name, not by this widget wrapper), so warming them here speeds
+// up that direct render path too, not just the AJAX period-switch endpoint.
+foreach (['all_time', 'this_year', 'this_month', 'this_week', 'today'] as $period) {
+    foreach (['favourites', 'trending'] as $panel) {
+        $params = ['id' => 'tracks', 'period' => $period, 'panel' => $panel];
+        try {
+            $_GET = $params;
+            WidgetCache::remember('tracks', $params, 900, $handlers['tracks']);
+            $refreshed[] = 'tracks_' . $period . '_' . $panel;
+        } catch (Throwable $e) {
+            $failed[] = 'tracks_' . $period . '_' . $panel;
+        }
     }
 }
 
