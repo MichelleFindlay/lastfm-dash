@@ -17,6 +17,10 @@ album art.
   track (see `config.sample.php` and `lib/ListenLinks.php`). YouTube lookups
   are capped at 100 per rolling 24 hours (`youtube_daily_limit`) to stay
   clear of Google's free quota; excess lookups fall back to the search link.
+  With a YouTube API key, a **Video** button also appears when the track has
+  an official music video (no key, or no convincing match, and it stays
+  hidden). That's a second YouTube search per new track, from the same
+  daily cap.
 - **Dynamic theming** — the page background and accent colour are extracted
   live from the current album art and eased in smoothly, with the accent
   colour clamped to a safe contrast range so text always stays readable

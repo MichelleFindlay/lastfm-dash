@@ -46,6 +46,14 @@ require_once __DIR__ . '/AppleMusic.php';
  * config.php, default 100) caps how many live lookups are made in any
  * 24-hour window, falling back to the search link once it's reached rather
  * than risking the key getting rate-limited or suspended by Google.
+ *
+ * The music-video link is the one entry that's never a search fallback:
+ * it only exists when a YouTube lookup finds what looks like the track's
+ * official video, so it needs the same YouTube API key (and draws on the
+ * same daily counter — a fresh track now costs two searches, not one).
+ * With no key, or no convincing match, its url is empty and the button
+ * stays hidden rather than pointing at a results page that may not have
+ * a video in it at all.
  */
 class ListenLinks
 {
@@ -69,7 +77,8 @@ class ListenLinks
      *     spotify: array{url: string, verified: bool},
      *     youtube: array{url: string, verified: bool},
      *     apple: array{url: string, verified: bool},
-     *     amazon: array{url: string, verified: bool}
+     *     amazon: array{url: string, verified: bool},
+     *     video: array{url: string, verified: bool}
      * }
      */
     public function forTrack(string $artist, string $track): array
@@ -80,6 +89,7 @@ class ListenLinks
                 'youtube' => ['url' => '', 'verified' => false],
                 'apple'   => ['url' => '', 'verified' => false],
                 'amazon'  => ['url' => '', 'verified' => false],
+                'video'   => ['url' => '', 'verified' => false],
             ];
         }
 
@@ -88,6 +98,7 @@ class ListenLinks
             'youtube' => $this->youtubeLink($artist, $track),
             'apple'   => $this->appleMusicLink($artist, $track),
             'amazon'  => $this->amazonMusicLink($artist, $track),
+            'video'   => $this->musicVideoLink($artist, $track),
         ];
     }
 
@@ -180,6 +191,107 @@ class ListenLinks
     private function amazonMusicLink(string $artist, string $track): array
     {
         return ['url' => 'https://music.amazon.com/search/' . rawurlencode($artist . ' ' . $track), 'verified' => false];
+    }
+
+    private function musicVideoLink(string $artist, string $track): array
+    {
+        $none = ['url' => '', 'verified' => false];
+
+        $apiKey = $this->config['youtube_api_key'] ?? '';
+        if ($apiKey === '') {
+            return $none;
+        }
+
+        $cacheKey = 'listen_video_' . md5(strtolower($artist . '|' . $track));
+        $cached = $this->readCache($cacheKey, 2592000);
+        if ($cached !== null) {
+            return $cached['url'] ? ['url' => $cached['url'], 'verified' => true] : $none;
+        }
+
+        // Same don't-cache-on-quota reasoning as youtubeLink().
+        if (!$this->youtubeQuotaAvailable()) {
+            return $none;
+        }
+
+        $query = $artist . ' ' . $track . ' official music video';
+        $apiUrl = 'https://www.googleapis.com/youtube/v3/search?part=snippet&maxResults=5&type=video&videoCategoryId=10&q='
+            . rawurlencode($query) . '&key=' . rawurlencode($apiKey);
+        $response = Http::get($apiUrl);
+
+        if ($response === null) {
+            return $none;
+        }
+
+        $data = json_decode($response, true);
+        $videoId = null;
+        foreach ($data['items'] ?? [] as $item) {
+            if ($this->looksLikeOfficialVideo($artist, $track, $item['snippet'] ?? [])) {
+                $videoId = $item['id']['videoId'] ?? null;
+                break;
+            }
+        }
+        $url = $videoId ? ('https://www.youtube.com/watch?v=' . $videoId) : null;
+
+        $this->writeCache($cacheKey, ['url' => $url]);
+
+        return $url ? ['url' => $url, 'verified' => true] : $none;
+    }
+
+    /**
+     * YouTube search happily returns lyric videos, fan uploads, covers, and
+     * auto-generated "Artist - Topic" audio for a "music video" query, so a
+     * result only counts if it names the track, comes from the artist (their
+     * own or VEVO channel, or names them in the title), and isn't one of
+     * those obvious non-video variants. Erring towards no button over a
+     * wrong one.
+     */
+    private function looksLikeOfficialVideo(string $artist, string $track, array $snippet): bool
+    {
+        $title = html_entity_decode((string) ($snippet['title'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $channel = html_entity_decode((string) ($snippet['channelTitle'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        if (preg_match('/\s-\s*topic$/i', $channel)) {
+            return false;
+        }
+
+        // Last.fm track names often carry "(Remastered 2011)" / "- Radio
+        // Edit" suffixes that the video title won't.
+        $trackCore = preg_replace('/\s*[\(\[].*?[\)\]]|\s+-\s+.*$/u', '', $track);
+        $normTitle = self::normalise($title);
+        $normTrack = self::normalise($trackCore !== '' ? $trackCore : $track);
+        $normArtist = self::normalise($artist);
+        $normChannel = self::normalise(preg_replace('/vevo|official|music|tv$/i', '', $channel));
+
+        if ($normTrack === '' || !str_contains($normTitle, $normTrack)) {
+            return false;
+        }
+
+        $byArtist = str_contains($normTitle, $normArtist)
+            || (strlen($normChannel) >= 3 && (str_contains($normChannel, $normArtist) || str_contains($normArtist, $normChannel)));
+        if (!$byArtist) {
+            return false;
+        }
+
+        // Whole words only, so "live" doesn't catch "Oliver" or "Alive"; and
+        // skipped when the track itself is the live/remix/etc. version.
+        $excluded = '/\b(lyrics?|audio|visuali[sz]er|cover|reaction|karaoke|instrumental|sped up|slowed|nightcore|8d|fan[ -]?made|live|remix|tutorial)\b/iu';
+        if (preg_match_all($excluded, $title, $matches)) {
+            foreach ($matches[1] as $word) {
+                if (!preg_match('/\b' . preg_quote($word, '/') . '\b/iu', $track)) {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static function normalise(string $text): string
+    {
+        $text = mb_strtolower($text);
+        $text = str_replace('&', 'and', $text);
+
+        return preg_replace('/[^\p{L}\p{N}]+/u', '', $text) ?? '';
     }
 
     /**
