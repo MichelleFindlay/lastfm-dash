@@ -475,6 +475,7 @@ body {
 
 .listen-links {
     display: flex;
+    flex-wrap: wrap;
     gap: 10px;
     margin-top: 14px;
 }
@@ -512,6 +513,10 @@ body {
 
 .listen-amazon svg {
     color: #00a8e1;
+}
+
+.listen-video svg {
+    color: #ff0000;
 }
 
 .prev-track {
@@ -797,6 +802,10 @@ body {
 
 .listen-icon.listen-amazon {
     color: #00a8e1;
+}
+
+.listen-icon.listen-video {
+    color: #ff0000;
 }
 
 .track-row .bar {

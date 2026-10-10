@@ -104,6 +104,8 @@ return [
     //serviceable on its own. youtube_daily_limit below caps live lookups to
     //stay clear of that quota rather than risking the key getting
     //rate-limited or suspended.
+    //The same key also powers the "Video" (official music video) button,
+    //which only appears with a key — it costs a second search per new track.
     // *
     'spotify_client_id'     => '',
     'spotify_client_secret' => '',
