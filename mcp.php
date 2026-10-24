@@ -39,6 +39,9 @@ require __DIR__ . '/lib/Mcp.php';
 
 header('Content-Type: application/json');
 
+require_once __DIR__ . '/lib/SecurityHeaders.php';
+SecurityHeaders::sendForApi();
+
 function mcpSend($id, ?array $result, ?array $error = null, int $httpStatus = 200): void
 {
     http_response_code($httpStatus);

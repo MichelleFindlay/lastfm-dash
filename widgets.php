@@ -12,6 +12,9 @@
 
 header('Content-Type: application/json');
 
+require_once __DIR__ . '/lib/SecurityHeaders.php';
+SecurityHeaders::sendForApi();
+
 // Some widgets sample deep into your library (each extra artist/track costs
 // its own external API call, cached afterward but not on a cold miss), so
 // the default 30s execution limit some hosts set isn't always enough.

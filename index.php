@@ -14,6 +14,10 @@ require __DIR__ . '/lib/ListenLinks.php';
 require __DIR__ . '/lib/LibrarySync.php';
 require __DIR__ . '/lib/GrammyAwards.php';
 require __DIR__ . '/lib/Certifications.php';
+require __DIR__ . '/lib/SecurityHeaders.php';
+require __DIR__ . '/lib/Dnssec.php';
+
+SecurityHeaders::sendForPage();
 
 function e(?string $value): string
 {
@@ -621,9 +625,10 @@ if (!empty($config['github_repo'])) {
             $initial = strtoupper(substr($t['name'] ?? '?', 0, 1));
             // Last.fm's API occasionally lists an image URL that 404s on its
             // own CDN, so fall back to the letter placeholder on load
-            // failure rather than showing a broken image.
+            // failure rather than showing a broken image (wired up in
+            // assets/app.js, since the CSP blocks inline onerror handlers).
             $thumb = $art
-                ? '<img src="' . e($art) . '" alt="" loading="lazy" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'\';">'
+                ? '<img src="' . e($art) . '" alt="" loading="lazy" data-thumb-img>'
                     . '<span class="thumb-fallback" style="display:none">' . e($initial) . '</span>'
                 : e($initial);
             $tooltip = '<div class="art-tooltip">'
@@ -787,6 +792,44 @@ if (!empty($config['github_repo'])) {
                 <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12.09 13.119c-.936 1.932-2.217 4.548-2.853 5.728-.616 1.074-1.127.931-1.532.029-1.406-3.321-4.293-9.144-5.651-12.409-.251-.601-.441-.987-.619-1.139-.181-.15-.554-.24-1.122-.271C.103 5.033 0 4.982 0 4.898v-.455l.052-.045c.924-.005 5.401 0 5.401 0l.051.045v.434c0 .119-.075.176-.225.176l-.564.031c-.485.029-.727.164-.727.436 0 .135.053.33.166.601 1.082 2.646 4.818 10.521 4.818 10.521l.136.046 2.411-4.81-.482-1.067-1.658-3.264s-.318-.654-.428-.872c-.728-1.443-.712-1.518-1.447-1.617-.207-.023-.313-.05-.313-.149v-.468l.06-.045h4.292l.113.037v.451c0 .105-.076.15-.227.15l-.308.047c-.792.061-.661.381-.136 1.422l1.582 3.252 1.758-3.504c.293-.64.233-.801.111-.947-.07-.084-.305-.22-.812-.24l-.201-.021c-.052 0-.098-.015-.145-.051-.045-.031-.067-.076-.067-.129v-.427l.061-.045c1.247-.008 4.043 0 4.043 0l.059.045v.436c0 .121-.059.178-.193.178-.646.03-.782.095-1.023.439-.12.186-.375.589-.646 1.039l-2.301 4.273-.065.135 2.792 5.712.17.048 4.396-10.438c.154-.422.129-.722-.064-.895-.197-.172-.346-.273-.857-.295l-.42-.016c-.061 0-.105-.014-.152-.045-.043-.029-.072-.075-.072-.119v-.436l.059-.045h4.961l.041.045v.437c0 .119-.074.18-.209.18-.648.03-1.127.18-1.443.421-.314.255-.557.616-.736 1.067 0 0-4.043 9.258-5.426 12.339-.525 1.007-1.053.917-1.503-.031-.571-1.171-1.773-3.786-2.646-5.71l.053-.036z"></path></svg>
             </a>
         </div>
+        <?php
+        $siteHost = strtolower(preg_replace('/:\d+$/', '', (string) ($_SERVER['HTTP_HOST'] ?? '')));
+        if (Dnssec::isCheckableHost($siteHost)):
+            $securityChecks = [
+                [
+                    'label' => 'DNSSEC',
+                    'ok'    => Dnssec::isSigned($siteHost),
+                    'url'   => 'https://dnssec-analyzer.verisignlabs.com/' . rawurlencode($siteHost),
+                    'via'   => 'Verisign DNSSEC Analyzer',
+                ],
+                [
+                    'label' => 'Security headers',
+                    'ok'    => SecurityHeaders::allPresent(),
+                    'url'   => 'https://securityheaders.com/?q=' . rawurlencode($siteHost) . '&followRedirects=on',
+                    'via'   => 'securityheaders.com',
+                ],
+            ];
+        ?>
+            <div class="security-line">
+                <?php foreach ($securityChecks as $check):
+                    $state = $check['ok'] === null ? 'unknown' : ($check['ok'] ? 'ok' : 'fail');
+                    $stateText = ['ok' => 'in place', 'fail' => 'not in place', 'unknown' => 'could not be checked'][$state];
+                ?>
+                    <a class="security-check security-<?= $state ?>" href="<?= e($check['url']) ?>" target="_blank" rel="noopener"
+                       title="<?= e($check['label'] . ' ' . $stateText . ' — verify on ' . $check['via']) ?>">
+                        <?php if ($state === 'ok'): ?>
+                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" d="M20 6 9 17l-5-5"/></svg>
+                        <?php elseif ($state === 'fail'): ?>
+                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M18 6 6 18M6 6l12 12"/></svg>
+                        <?php else: ?>
+                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M6 12h12"/></svg>
+                        <?php endif; ?>
+                        <span><?= e($check['label']) ?></span>
+                        <span class="visually-hidden">(<?= e($stateText) ?>)</span>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
         <div class="version-line">
             <?php if (!empty($config['github_repo'])): ?>
                 <a class="version-gh-link" href="https://github.com/<?= e($config['github_repo']) ?>" target="_blank" rel="noopener">
@@ -818,10 +861,10 @@ if (!empty($config['github_repo'])) {
     </footer>
 </div>
 
-<script>
+<script nonce="<?= e(SecurityHeaders::nonce()) ?>">
 window.APP_CONFIG = { pollIntervalMs: <?= (int) $config['poll_interval_ms'] ?> };
 window.INITIAL_TRACK = <?= json_encode($nowPlaying) ?>;
 </script>
-<script src="assets/app.js?v=<?= (int) @filemtime(__DIR__ . '/assets/app.js') ?>"></script>
+<script nonce="<?= e(SecurityHeaders::nonce()) ?>" src="assets/app.js?v=<?= (int) @filemtime(__DIR__ . '/assets/app.js') ?>"></script>
 </body>
 </html>

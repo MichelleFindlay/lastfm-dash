@@ -7,6 +7,9 @@
 
 header('Content-Type: application/json');
 
+require_once __DIR__ . '/lib/SecurityHeaders.php';
+SecurityHeaders::sendForApi();
+
 require __DIR__ . '/lib/LastFm.php';
 require __DIR__ . '/lib/ListenLinks.php';
 require __DIR__ . '/lib/LibrarySync.php';
