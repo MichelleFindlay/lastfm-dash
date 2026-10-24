@@ -1356,6 +1356,28 @@
             });
     }
 
+    // Server-rendered row thumbnails fall back to their letter placeholder
+    // when the art 404s. Done here rather than with an inline onerror
+    // attribute, which the Content-Security-Policy blocks. Images that
+    // already failed before this script loaded are caught by the sweep.
+    function showThumbFallback(img) {
+        img.style.display = "none";
+        var fallback = img.nextElementSibling;
+        if (fallback && fallback.classList.contains("thumb-fallback")) {
+            fallback.style.display = "";
+        }
+    }
+    document.addEventListener("error", function (ev) {
+        if (ev.target instanceof HTMLImageElement && ev.target.hasAttribute("data-thumb-img")) {
+            showThumbFallback(ev.target);
+        }
+    }, true);
+    document.querySelectorAll("img[data-thumb-img]").forEach(function (img) {
+        if (img.complete && img.naturalWidth === 0) {
+            showThumbFallback(img);
+        }
+    });
+
     var heroSection = document.querySelector(".now-playing");
     if (heroSection) {
         heroSection.addEventListener("mouseleave", function () {

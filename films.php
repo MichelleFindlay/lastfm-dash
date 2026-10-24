@@ -9,6 +9,9 @@
 
 header('Content-Type: application/json');
 
+require_once __DIR__ . '/lib/SecurityHeaders.php';
+SecurityHeaders::sendForApi();
+
 require __DIR__ . '/lib/FilmSoundtracks.php';
 
 $configFile = __DIR__ . '/config.php';

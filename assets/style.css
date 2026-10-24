@@ -1047,6 +1047,50 @@ body {
     color: var(--fg);
 }
 
+.security-line {
+    margin-top: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+
+.security-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--fg-dim);
+    text-decoration: none;
+    transition: color 150ms ease;
+}
+
+.security-check:hover {
+    color: var(--fg);
+    text-decoration: underline;
+}
+
+.security-check svg {
+    flex: none;
+}
+
+.security-ok svg {
+    color: #1db954;
+}
+
+.security-fail svg {
+    color: #e5484d;
+}
+
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
 .version-line {
     margin-top: 6px;
     opacity: 0.8;
