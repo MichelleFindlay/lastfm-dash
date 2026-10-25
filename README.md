@@ -66,7 +66,8 @@ album art.
   the latest GitHub release and links to it when an update is available.
 - **Security headers** — every page and endpoint sends HSTS, a nonce-based
   Content-Security-Policy, X-Frame-Options, X-Content-Type-Options,
-  Referrer-Policy and Permissions-Policy (A+ on securityheaders.com), and
+  Referrer-Policy, Permissions-Policy and the Cross-Origin Opener/Resource/
+  Embedder policies (A+ on securityheaders.com), and
   hides PHP's X-Powered-By. The footer shows a tick or cross for these and
   for DNSSEC on your domain, linking to securityheaders.com and Verisign's
   DNSSEC Analyzer to verify.
