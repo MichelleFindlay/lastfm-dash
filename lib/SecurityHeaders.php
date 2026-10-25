@@ -45,12 +45,12 @@ class SecurityHeaders
             "form-action 'self'",
             "frame-ancestors 'self'",
             'upgrade-insecure-requests',
-        ]));
+        ]), 'credentialless');
     }
 
     public static function sendForApi(): void
     {
-        self::send("default-src 'none'; frame-ancestors 'none'");
+        self::send("default-src 'none'; frame-ancestors 'none'", 'require-corp');
     }
 
     /**
@@ -72,7 +72,13 @@ class SecurityHeaders
         return true;
     }
 
-    private static function send(string $csp): void
+    /**
+     * The page uses COEP credentialless rather than require-corp: album art
+     * comes from third-party CDNs that don't send Cross-Origin-Resource-Policy,
+     * and require-corp would block every one of those images. credentialless
+     * still loads them, just without cookies.
+     */
+    private static function send(string $csp, string $coep): void
     {
         if (headers_sent()) {
             return;
@@ -87,5 +93,6 @@ class SecurityHeaders
         header('Permissions-Policy: accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()');
         header('Cross-Origin-Opener-Policy: same-origin');
         header('Cross-Origin-Resource-Policy: same-origin');
+        header('Cross-Origin-Embedder-Policy: ' . $coep);
     }
 }
