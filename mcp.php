@@ -98,7 +98,7 @@ $isNotification = !array_key_exists('id', $request);
 
 $lastfm = new LastFm($config['api_key'], $config['username'], (int) ($config['cache_ttl'] ?? 60));
 $widgets = new Widgets($lastfm, $config);
-$library = new LibrarySync($lastfm, $config['username']);
+$library = LibrarySync::fromConfig($lastfm, $config);
 $mcp = new Mcp($lastfm, $widgets, $library, $config);
 
 switch ($method) {

@@ -88,7 +88,7 @@ if (!$isCli) {
 
 $lastfm = new LastFm($config['api_key'], $config['username'], (int) ($config['cache_ttl'] ?? 60));
 $widgets = new Widgets($lastfm, $config);
-$library = new LibrarySync($lastfm, $config['username']);
+$library = LibrarySync::fromConfig($lastfm, $config);
 $handlers = WidgetRegistry::handlers($lastfm, $widgets, $config, $library);
 
 $refreshed = [];
@@ -110,6 +110,26 @@ try {
     $refreshed[] = 'library_backfill';
 } catch (Throwable $e) {
     $failed[] = 'library_backfill';
+}
+
+// Imported listening history (ListenBrainz / Libre.fm, if configured — see
+// lib/ScrobbleSources.php): same two steps as above, run independently per
+// source, de-duplicated against what Last.fm (or another source) already
+// recorded. Runs before the tag backfill so imported artists get tagged too.
+// A failing source is reported here and just resumes next run.
+try {
+    $importSync = $library->syncImports();
+    $importBackfill = $library->backfillImports(max(1, (int) ($config['library_backfill_pages_per_run'] ?? 20)));
+    foreach (array_keys($importSync + $importBackfill) as $id) {
+        if (isset($importSync[$id]['error']) || isset($importBackfill[$id]['error'])) {
+            $failed[] = 'import_' . $id;
+        }
+    }
+    if ($importSync || $importBackfill) {
+        $refreshed[] = 'library_imports';
+    }
+} catch (Throwable $e) {
+    $failed[] = 'library_imports';
 }
 
 // Genre tag backfill — so the local, uncapped ("no Other") Genre Breakdown
@@ -191,6 +211,17 @@ if (isset($backfill)) {
     $summary .= $backfill['complete']
         ? ' — library backfill complete'
         : sprintf(' — library backfill: +%d pages, +%d scrobbles this run', $backfill['pages'], $backfill['scrobbles']);
+}
+
+foreach ($importBackfill ?? [] as $id => $r) {
+    $synced = $importSync[$id]['scrobbles'] ?? 0;
+    if (isset($r['error']) || isset($importSync[$id]['error'])) {
+        $summary .= sprintf(' — %s: %s', $r['label'], $r['error'] ?? $importSync[$id]['error']);
+    } elseif ($r['complete']) {
+        $summary .= sprintf(' — %s import complete (+%d new)', $r['label'], $synced);
+    } else {
+        $summary .= sprintf(' — %s import: +%d pages, +%d scrobbles this run (+%d new)', $r['label'], $r['pages'], $r['scrobbles'], $synced);
+    }
 }
 
 if (isset($tagBackfill)) {

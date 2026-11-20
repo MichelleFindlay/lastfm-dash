@@ -467,6 +467,13 @@
                 els.badge.classList.remove("live");
                 els.badge.textContent = "Last played";
             }
+            // Live listening from ListenBrainz / Libre.fm: say where it came from.
+            if (track.source && track.source !== "Last.fm") {
+                var via = document.createElement("span");
+                via.className = "status-source";
+                via.textContent = " · via " + track.source;
+                els.badge.appendChild(via);
+            }
         }
 
         if (track.image) {
