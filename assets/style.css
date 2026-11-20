@@ -298,6 +298,12 @@ body {
     transition: color var(--color-transition);
 }
 
+/* "· via ListenBrainz" — live listening merged in from another service */
+.status-source {
+    color: var(--fg-dim);
+    margin-left: -4px;
+}
+
 .eq {
     display: inline-flex;
     align-items: flex-end;

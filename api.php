@@ -34,10 +34,18 @@ $spotify = new Spotify($config['spotify_client_id'] ?? '', $config['spotify_clie
 $appleMusic = new AppleMusic(__DIR__);
 $grammyAwards = new GrammyAwards(__DIR__);
 $certifications = new Certifications(__DIR__, $config['github_repo'] ?? '');
-$library = new LibrarySync($lastfm, $config['username']);
+$library = LibrarySync::fromConfig($lastfm, $config);
 $tz = LastFm::resolveTimezone($config['timezone'] ?? '');
 $recent = $lastfm->getRecentTracks(4);
-$tracks = $recent['recenttracks']['track'] ?? [];
+// Merges in live listening from ListenBrainz / Libre.fm when configured
+// (see lib/ScrobbleSources.php); with neither set, this is Last.fm's list unchanged.
+$tracks = ScrobbleSources::mergeRecent(
+    $recent['recenttracks']['track'] ?? [],
+    ScrobbleSources::fromConfig($config),
+    4,
+    max(3, $pollSeconds - 2),
+    ScrobbleSources::dedupeSeconds($config)
+);
 
 $track = $tracks[0] ?? null;
 
@@ -58,6 +66,7 @@ if ($previousTrackRaw) {
     $previousTrack = [
         'name'        => $previousTrackRaw['name'] ?? '',
         'artist'      => $previousArtist,
+        'source'      => $previousTrackRaw['_source'] ?? 'Last.fm',
         'album'       => $previousTrackRaw['album']['#text'] ?? '',
         'image'       => $spotify->resolveTrackArt($lastfm, $previousArtist, $previousTrackRaw['name'] ?? '', $previousTrackRaw['image'] ?? [], $appleMusic),
         'track_stats' => $lastfm->getTrackStats($previousArtist, $previousTrackRaw['name'] ?? ''),
@@ -73,6 +82,7 @@ if ($previousTrackRaw) {
 echo json_encode([
     'ok'          => true,
     'now_playing' => $isNowPlaying,
+    'source'      => $track['_source'] ?? 'Last.fm',
     'name'        => $track['name'] ?? '',
     'artist'      => $artist,
     'album'       => $album,

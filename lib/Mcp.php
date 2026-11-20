@@ -162,10 +162,13 @@ class Mcp
     private function getNowPlaying(): array
     {
         $recent = $this->lastfm->getRecentTracks(4);
-        $tracks = $recent['recenttracks']['track'] ?? [];
-        if (isset($tracks['name'])) {
-            $tracks = [$tracks];
-        }
+        $tracks = ScrobbleSources::mergeRecent(
+            $recent['recenttracks']['track'] ?? [],
+            ScrobbleSources::fromConfig($this->config),
+            4,
+            (int) ($this->config['cache_ttl'] ?? 60),
+            ScrobbleSources::dedupeSeconds($this->config)
+        );
         $track = $tracks[0] ?? null;
 
         if (!$track) {
@@ -179,12 +182,14 @@ class Mcp
             'available'   => true,
             'now_playing' => ($track['@attr']['nowplaying'] ?? '') === 'true',
             'current'     => [
+                'source' => $track['_source'] ?? 'Last.fm',
                 'name'   => $track['name'] ?? '',
                 'artist' => $artist,
                 'album'  => $track['album']['#text'] ?? '',
                 'date'   => $track['date']['#text'] ?? null,
             ],
             'previous' => $previousRaw ? [
+                'source' => $previousRaw['_source'] ?? 'Last.fm',
                 'name'   => $previousRaw['name'] ?? '',
                 'artist' => $previousRaw['artist']['#text'] ?? ($previousRaw['artist']['name'] ?? ''),
                 'album'  => $previousRaw['album']['#text'] ?? '',

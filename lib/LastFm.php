@@ -73,13 +73,23 @@ class LastFm
     private string $user;
     private int $cacheTtl;
     private string $cacheDir;
+    private string $apiBase;
 
-    public function __construct(string $apiKey, string $user, int $cacheTtl = 60)
+    public const DEFAULT_API_BASE = 'https://ws.audioscrobbler.com/2.0/';
+
+    /**
+     * @param string $apiBase Root of a Last.fm-compatible 2.0 API. Defaults to
+     *     Last.fm itself; Libre.fm (GNU FM) speaks the same protocol at
+     *     https://libre.fm/2.0/, which is how lib/ScrobbleSources.php reuses
+     *     this client for Libre.fm import and live now-playing.
+     */
+    public function __construct(string $apiKey, string $user, int $cacheTtl = 60, string $apiBase = self::DEFAULT_API_BASE)
     {
         $this->apiKey = $apiKey;
         $this->user = $user;
         $this->cacheTtl = $cacheTtl;
         $this->cacheDir = __DIR__ . '/../cache';
+        $this->apiBase = $apiBase;
 
         if (!is_dir($this->cacheDir)) {
             @mkdir($this->cacheDir, 0775, true);
@@ -112,7 +122,10 @@ class LastFm
             'format'   => 'json',
         ], $params);
 
-        $cacheFile = $this->cacheDir . '/' . md5($method . serialize($params)) . '.json';
+        // The API base only joins the cache key when it isn't Last.fm's own,
+        // so existing installs keep every cache entry they already have.
+        $keyPrefix = $this->apiBase === self::DEFAULT_API_BASE ? '' : $this->apiBase;
+        $cacheFile = $this->cacheDir . '/' . md5($keyPrefix . $method . serialize($params)) . '.json';
 
         if ($ttl > 0 && is_file($cacheFile) && (time() - filemtime($cacheFile)) < $ttl) {
             $cached = json_decode((string) file_get_contents($cacheFile), true);
@@ -125,7 +138,7 @@ class LastFm
             return null;
         }
 
-        $url = 'https://ws.audioscrobbler.com/2.0/?' . http_build_query($params);
+        $url = $this->apiBase . '?' . http_build_query($params);
         $response = Http::get($url, ['User-Agent: lastfm-dash/1.0']);
 
         if ($response === null) {
@@ -222,7 +235,7 @@ class LastFm
      * widgets — e.g. Deezer for BPM, which Last.fm doesn't expose. Reuses
      * the same file cache as the Last.fm API calls.
      */
-    public function externalGet(string $url, int $ttl, array $headers = []): ?string
+    public function externalGet(string $url, int $ttl, array $headers = [], int $timeout = 8): ?string
     {
         $cacheFile = $this->cacheDir . '/ext_' . md5($url) . '.json';
 
@@ -233,7 +246,7 @@ class LastFm
             }
         }
 
-        $response = Http::get($url, $headers);
+        $response = Http::get($url, $headers, $timeout);
         if ($response === null) {
             return null;
         }

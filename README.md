@@ -10,6 +10,10 @@ album art.
 - **Now Playing** — live "now scrobbling" / last-played track, polled every
   few seconds, with a "previously played" card alongside it showing the
   track before it.
+- **ListenBrainz & Libre.fm import** (optional) — pulls your listening
+  history from either or both into the local library, de-duplicated
+  against Last.fm, and shows live "now scrobbling" from them on the Now
+  Playing card too. See "Importing from ListenBrainz / Libre.fm" below.
 - **Quick-listen links** — Spotify and YouTube Music links on the current
   track and on hover over any track row, so you don't have to leave the
   dashboard to find it yourself. Work as plain search links with zero setup;
@@ -174,6 +178,51 @@ covering every artist you've ever scrobbled in one request.
 This runs automatically as part of `cron.php` (see "Background cache
 warming" above) — there's nothing extra to schedule.
 
+## Importing from ListenBrainz / Libre.fm (optional)
+
+If you also scrobble to [ListenBrainz](https://listenbrainz.org) or
+[Libre.fm](https://libre.fm), or used to, set `listenbrainz_username`
+and/or `librefm_username` in `config.php`. Each one you set does two
+things:
+
+- **Import:** `cron.php` pulls that service's full history into the local
+  library snapshot, a bounded batch per run (`library_backfill_pages_per_run`
+  pages: 1,000 listens per page for ListenBrainz, 200 for Libre.fm). It
+  walks backward from when you enabled it, while new listens are picked up
+  every run. Favourite Tracks, Trending, Genre Breakdown, the hover-tooltip
+  insights and the MCP history tools then count those plays alongside your
+  Last.fm ones.
+- **Live listening:** the Now Playing card (and the MCP `get_now_playing`
+  tool) also checks that service on every poll. If it's playing something
+  and Last.fm isn't, that track is shown, labelled "via ListenBrainz" /
+  "via Libre.fm". "Last played" and "Previously played" likewise use
+  whichever service has the newest scrobble.
+
+**Double-counting:** most people who use more than one service scrobble the
+same plays to all of them. A play recorded by two services counts once:
+same artist and track (ignoring case), timestamps within
+`import_dedupe_seconds` (default 180) of each other. Matching is
+one-to-one, so a track you really did play twice in a row still counts
+twice. Two entries from the same service are never merged.
+
+**Coverage:** a period counts as covered by the local library only once
+Last.fm **and** every enabled import have backfilled that far back. So
+enabling an import on an already-complete library briefly sends the longer
+periods back to the live Last.fm fallback until the import catches up,
+rather than showing totals that mix complete and partial histories. "Today"
+and "This week" are usually covered again after the first run.
+
+**Notes:**
+- Last.fm is still the primary account and is still required. Album art,
+  tags, track stats and lifetime stats all come from it.
+- ListenBrainz listens are public by default, so a username is enough. Set
+  `listenbrainz_token` (from your ListenBrainz settings page) if yours
+  aren't. Libre.fm needs only a username; your Last.fm API key is never
+  sent to either service.
+- Disabling an import stops future imports but keeps listens already
+  imported. To remove them completely, delete `cache/library_*.json.gz`
+  and let `cron.php` rebuild it.
+
 ## Genre verification (optional)
 
 With Spotify credentials configured (see "Quick-listen links" above),
@@ -214,7 +263,7 @@ listening history through this endpoint.
 
 | Tool | What it returns |
 |---|---|
-| `get_now_playing` | Currently/most recently played track, plus the one before it |
+| `get_now_playing` | Currently/most recently played track, plus the one before it (including live listening from ListenBrainz/Libre.fm, with a `source` field) |
 | `list_scrobbles` | Individual listening history — artist, track, exact date/time — with `since`/`until`/`limit` |
 | `top_artists` / `top_tracks` | Ranked by play count for a period (`all_time`/`this_year`/`this_month`/`this_week`/`today`) |
 | `genre_breakdown` | Genre percentages for a period, optionally Spotify-verified |

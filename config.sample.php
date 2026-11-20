@@ -59,6 +59,27 @@ return [
     // backfillArtistTags(). Heaviest-played artists are tagged first.
     'library_tag_backfill_per_run' => 50,
 
+    // Import + live listening from other scrobble services (optional) —
+    // see lib/ScrobbleSources.php and "Importing from ListenBrainz /
+    // Libre.fm" in README.md. Set a username to enable that service:
+    //  - cron.php imports its full history into the local library snapshot
+    //    (same paced backfill as Last.fm's, sharing
+    //    library_backfill_pages_per_run), de-duplicated against plays
+    //    already recorded by Last.fm or another service, so scrobbling to
+    //    several at once doesn't double-count anything.
+    //  - The Now Playing card also checks it live, so a track playing there
+    //    (but not on Last.fm) still shows up, marked "via ListenBrainz" etc.
+    // Last.fm stays the primary account — api_key/username above are still
+    // required. Leave a username blank (the default) to disable it.
+    'listenbrainz_username' => '',
+    // Optional ListenBrainz user token (https://listenbrainz.org/settings/)
+    // — only needed if your listens aren't public. Server-side only.
+    'listenbrainz_token'    => '',
+    'librefm_username'      => '',
+    // Two plays of the same artist + track from different services within
+    // this many seconds of each other count as one play.
+    'import_dedupe_seconds' => 180,
+
     // Which timeframe each period-picker panel shows on page load. Visitors
     // can still switch it themselves — this only sets the initial view.
     // Valid values: all_time | this_year | this_month | this_week | today

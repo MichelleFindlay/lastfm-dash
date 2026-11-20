@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/ScrobbleSources.php';
+
 /**
  * Maintains a local, gzip-compressed snapshot of the user's full scrobble
  * history (artist + track + timestamp per scrobble) under cache/, built up
@@ -21,6 +23,18 @@
  * scrobbles since that same starting moment are picked up separately (and
  * far more cheaply) by syncRecent(), anchored by `from` the same way
  * LastFm's own "today" methods already work.
+ *
+ * Optional extra sources (ListenBrainz, Libre.fm — see
+ * lib/ScrobbleSources.php) are imported into the same scrobble list by
+ * syncImports() / backfillImports(), each with its own independent
+ * backfill/sync cursors under state['imports']. Imported entries carry their
+ * service name as a 4th element ([artist, track, ts, 'listenbrainz']; Last.fm
+ * entries stay 3 elements, exactly as before), which is what lets every
+ * merge de-duplicate a play recorded by two services without ever
+ * collapsing two entries from the same service. With sources enabled, a
+ * period only counts as "covered" once every enabled source has backfilled
+ * that far back too — otherwise totals would silently mix complete and
+ * partial histories.
  */
 class LibrarySync
 {
@@ -29,11 +43,29 @@ class LibrarySync
     private ?array $stateCache = null;
     private ?array $trackRankCache = null;
     private ?array $artistRankCache = null;
+    /** @var ScrobbleSource[] */
+    private array $sources;
+    private int $dedupeSeconds;
 
-    public function __construct(LastFm $lastfm, string $user)
+    /**
+     * @param ScrobbleSource[] $sources Extra services to import from — usually ScrobbleSources::fromConfig($config).
+     */
+    public function __construct(LastFm $lastfm, string $user, array $sources = [], int $dedupeSeconds = 180)
     {
         $this->lastfm = $lastfm;
         $this->file = __DIR__ . '/../cache/library_' . md5($user) . '.json.gz';
+        $this->sources = $sources;
+        $this->dedupeSeconds = max(0, $dedupeSeconds);
+    }
+
+    /**
+     * Builds a LibrarySync with whichever import sources config.php enables
+     * — the one-liner every entry point (index.php, api.php, cron.php,
+     * widgets.php, mcp.php) uses, so they all agree on what "covered" means.
+     */
+    public static function fromConfig(LastFm $lastfm, array $config): self
+    {
+        return new self($lastfm, $config['username'], ScrobbleSources::fromConfig($config), ScrobbleSources::dedupeSeconds($config));
     }
 
     private function load(): array
@@ -73,8 +105,127 @@ class LibrarySync
             'backfill_complete' => false,
             'backfill_before'   => $now, // walks backward from snapshot creation time
             'synced_through'    => $now, // walks forward from the same point
-            'scrobbles'         => [],   // each: [artist, track name, unix timestamp]
+            'scrobbles'         => [],   // each: [artist, track name, unix timestamp(, import service)]
+            'imports'           => [],   // source id => {backfill_complete, backfill_before, synced_through}
         ];
+    }
+
+    /** Service name stored on imported entries: "listenbrainz:rob" -> "listenbrainz". */
+    private static function serviceOf(string $sourceId): string
+    {
+        return explode(':', $sourceId, 2)[0];
+    }
+
+    /**
+     * Appends $incoming scrobbles from $service to the state, skipping any
+     * that another service already recorded — same artist + track
+     * (case-insensitive) within $this->dedupeSeconds, matched one-to-one,
+     * nearest timestamp first. With no import sources configured this is a
+     * plain append, byte-for-byte the pre-import behaviour.
+     *
+     * @param array<int, array{0:string, 1:string, 2:int}> $incoming
+     * @return int how many were actually added
+     */
+    private function mergeScrobbles(array &$state, array $incoming, string $service): int
+    {
+        if (empty($incoming)) {
+            return 0;
+        }
+
+        $tag = fn(array $s) => $service === ScrobbleSources::LASTFM_ID ? [$s[0], $s[1], $s[2]] : [$s[0], $s[1], $s[2], $service];
+
+        if (empty($this->sources)) {
+            foreach ($incoming as $s) {
+                $state['scrobbles'][] = $tag($s);
+            }
+
+            return count($incoming);
+        }
+
+        $window = $this->dedupeSeconds;
+        $timestamps = array_column($incoming, 2);
+        $lo = min($timestamps) - $window;
+        $hi = max($timestamps) + $window;
+
+        // Only other services' entries near this batch's time range can match.
+        $index = [];
+        foreach ($state['scrobbles'] as $s) {
+            if ($s[2] < $lo || $s[2] > $hi || ($s[3] ?? ScrobbleSources::LASTFM_ID) === $service) {
+                continue;
+            }
+            $index[ScrobbleSources::matchKey($s[0], $s[1])][] = $s[2];
+        }
+
+        $added = 0;
+        foreach ($incoming as $s) {
+            $key = ScrobbleSources::matchKey($s[0], $s[1]);
+            $best = null;
+            $bestDiff = PHP_INT_MAX;
+            foreach ($index[$key] ?? [] as $i => $ts) {
+                $diff = abs($ts - $s[2]);
+                if ($diff <= $window && $diff < $bestDiff) {
+                    $best = $i;
+                    $bestDiff = $diff;
+                }
+            }
+
+            if ($best !== null) {
+                unset($index[$key][$best]); // consumed: one play absorbs one duplicate
+                continue;
+            }
+
+            $state['scrobbles'][] = $tag($s);
+            $added++;
+        }
+
+        return $added;
+    }
+
+    /** Lazily-initialized cursor state for one import source, starting from "now". */
+    private function importEntry(array $state, ScrobbleSource $source): array
+    {
+        $now = time();
+
+        return ($state['imports'][$source->id()] ?? []) + [
+            'label'             => $source->label(),
+            'backfill_complete' => false,
+            'backfill_before'   => $now,
+            'synced_through'    => $now,
+        ];
+    }
+
+    /** True once Last.fm and every enabled import source have backfilled to the very start. */
+    private function fullyBackfilled(array $state): bool
+    {
+        if (!$state['backfill_complete']) {
+            return false;
+        }
+
+        foreach ($this->sources as $source) {
+            if (empty($state['imports'][$source->id()]['backfill_complete'])) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** The most recent "backfilled back to" point across Last.fm and every enabled source. */
+    private function effectiveBackfillBefore(array $state): int
+    {
+        $before = (int) $state['backfill_before'];
+
+        foreach ($this->sources as $source) {
+            $imp = $state['imports'][$source->id()] ?? null;
+            if ($imp === null) {
+                return PHP_INT_MAX; // enabled but never run yet — covers nothing
+            }
+            if (empty($imp['backfill_complete'])) {
+                $before = max($before, (int) $imp['backfill_before']);
+            }
+        }
+
+        return $before;
     }
 
     /**
@@ -122,6 +273,7 @@ class LibrarySync
             }
 
             $pages++;
+            $batch = [];
             foreach ($tracks as $t) {
                 $uts = $t['date']['uts'] ?? null;
                 $name = $t['name'] ?? '';
@@ -131,10 +283,10 @@ class LibrarySync
                 }
 
                 $uts = (int) $uts;
-                $state['scrobbles'][] = [$artist, $name, $uts];
-                $added++;
+                $batch[] = [$artist, $name, $uts];
                 $oldestSeen = min($oldestSeen, $uts);
             }
+            $added += $this->mergeScrobbles($state, $batch, ScrobbleSources::LASTFM_ID);
 
             $totalPages = (int) ($data['recenttracks']['@attr']['totalPages'] ?? 1);
             if ($page >= $totalPages) {
@@ -170,6 +322,7 @@ class LibrarySync
         $state = $this->load();
         $since = $state['synced_through'];
         $added = 0;
+        $fetched = 0;
 
         for ($page = 1; $page <= 10; $page++) {
             $data = $this->lastfm->call('user.getrecenttracks', [
@@ -187,6 +340,7 @@ class LibrarySync
                 break;
             }
 
+            $batch = [];
             foreach ($tracks as $t) {
                 $uts = $t['date']['uts'] ?? null;
                 $name = $t['name'] ?? '';
@@ -196,10 +350,11 @@ class LibrarySync
                 }
 
                 $uts = (int) $uts;
-                $state['scrobbles'][] = [$artist, $name, $uts];
+                $batch[] = [$artist, $name, $uts];
                 $state['synced_through'] = max($state['synced_through'], $uts);
-                $added++;
+                $fetched++;
             }
+            $added += $this->mergeScrobbles($state, $batch, ScrobbleSources::LASTFM_ID);
 
             $totalPages = (int) ($data['recenttracks']['@attr']['totalPages'] ?? 1);
             if ($page >= $totalPages) {
@@ -207,11 +362,99 @@ class LibrarySync
             }
         }
 
-        if ($added > 0) {
-            $this->save($state);
+        if ($fetched > 0) {
+            $this->save($state); // synced_through moved even if every new one was a duplicate
         }
 
         return ['scrobbles' => $added];
+    }
+
+    /**
+     * syncRecent()'s equivalent for every enabled import source: pulls each
+     * one's scrobbles since its own last sync point and merges them in. One
+     * failing source doesn't stop the others; its error is reported in its
+     * result entry instead and it simply retries next run.
+     *
+     * @return array<string, array{label: string, scrobbles: int, error?: string}> keyed by source id
+     */
+    public function syncImports(): array
+    {
+        if (empty($this->sources)) {
+            return [];
+        }
+
+        $state = $this->load();
+        $results = [];
+
+        foreach ($this->sources as $source) {
+            $imp = $this->importEntry($state, $source);
+            $result = ['label' => $source->label(), 'scrobbles' => 0];
+
+            try {
+                $incoming = $source->fetchSince((int) $imp['synced_through']);
+                if ($incoming) {
+                    $imp['synced_through'] = max((int) $imp['synced_through'], max(array_column($incoming, 2)));
+                    $result['scrobbles'] = $this->mergeScrobbles($state, $incoming, self::serviceOf($source->id()));
+                }
+            } catch (Throwable $e) {
+                $result['error'] = $e->getMessage();
+            }
+
+            $state['imports'][$source->id()] = $imp;
+            $results[$source->id()] = $result;
+        }
+
+        $this->save($state);
+
+        return $results;
+    }
+
+    /**
+     * backfillBatch()'s equivalent for every enabled import source: up to
+     * $maxPages more pages of each one's older history per run, walking
+     * backward from when that source was first enabled. Per-source errors
+     * are reported, not thrown, same as syncImports().
+     *
+     * @return array<string, array{label: string, pages: int, scrobbles: int, complete: bool, error?: string}> keyed by source id
+     */
+    public function backfillImports(int $maxPages): array
+    {
+        if (empty($this->sources)) {
+            return [];
+        }
+
+        $state = $this->load();
+        $results = [];
+
+        foreach ($this->sources as $source) {
+            $imp = $this->importEntry($state, $source);
+            $result = ['label' => $source->label(), 'pages' => 0, 'scrobbles' => 0, 'complete' => (bool) $imp['backfill_complete']];
+
+            if (!$imp['backfill_complete']) {
+                try {
+                    $batch = $source->fetchBefore((int) $imp['backfill_before'], max(1, $maxPages));
+                    $result['pages'] = $batch['pages'];
+
+                    if ($batch['scrobbles']) {
+                        $imp['backfill_before'] = max(0, min(array_column($batch['scrobbles'], 2)) - 1);
+                        $result['scrobbles'] = $this->mergeScrobbles($state, $batch['scrobbles'], self::serviceOf($source->id()));
+                    }
+                    if ($batch['end']) {
+                        $imp['backfill_complete'] = true;
+                        $result['complete'] = true;
+                    }
+                } catch (Throwable $e) {
+                    $result['error'] = $e->getMessage();
+                }
+            }
+
+            $state['imports'][$source->id()] = $imp;
+            $results[$source->id()] = $result;
+        }
+
+        $this->save($state);
+
+        return $results;
     }
 
     /**
@@ -240,7 +483,7 @@ class LibrarySync
 
     private function covers(array $state, int $sinceUnix): bool
     {
-        return $sinceUnix <= 0 ? $state['backfill_complete'] : $sinceUnix >= $state['backfill_before'];
+        return $sinceUnix <= 0 ? $this->fullyBackfilled($state) : $sinceUnix >= $this->effectiveBackfillBefore($state);
     }
 
     /**
@@ -332,11 +575,26 @@ class LibrarySync
     {
         $state = $this->load();
 
+        $imports = [];
+        foreach ($this->sources as $source) {
+            $imp = $state['imports'][$source->id()] ?? null;
+            $imports[] = [
+                'source'            => $source->label(),
+                'started'           => $imp !== null,
+                'backfill_complete' => (bool) ($imp['backfill_complete'] ?? false),
+                'backfill_before'   => $imp['backfill_before'] ?? null,
+                'synced_through'    => $imp['synced_through'] ?? null,
+            ];
+        }
+
+        $before = $this->effectiveBackfillBefore($state);
+
         return [
-            'backfill_complete' => $state['backfill_complete'],
-            'backfill_before'   => $state['backfill_before'],
+            'backfill_complete' => $this->fullyBackfilled($state),
+            'backfill_before'   => $before === PHP_INT_MAX ? null : $before,
             'synced_through'    => $state['synced_through'],
             'scrobble_count'    => count($state['scrobbles']),
+            'imports'           => $imports,
         ];
     }
 
@@ -436,7 +694,7 @@ class LibrarySync
         }
 
         $state = $this->load();
-        if (!$state['backfill_complete']) {
+        if (!$this->fullyBackfilled($state)) {
             return null;
         }
 
@@ -546,7 +804,7 @@ class LibrarySync
         }
         sort($allTimestamps);
 
-        if ($state['backfill_complete'] && !empty($allTimestamps)) {
+        if ($this->fullyBackfilled($state) && !empty($allTimestamps)) {
             $insights['first_scrobbled'] = $allTimestamps[0];
 
             $total = count($allTimestamps);
