@@ -1015,6 +1015,14 @@ body {
     color: inherit;
 }
 
+/* One link per configured service (Last.fm / ListenBrainz / Libre.fm) */
+.lastfm-profile-line {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px 16px;
+}
+
 .lastfm-profile-line a {
     display: inline-flex;
     align-items: center;
@@ -1031,6 +1039,11 @@ body {
 
 .lastfm-icon {
     color: #d51007;
+    flex: none;
+}
+
+/* ListenBrainz / Libre.fm marks beside their profile links */
+.profile-icon {
     flex: none;
 }
 

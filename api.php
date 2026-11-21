@@ -28,7 +28,7 @@ $config = require $configFile;
 // Cache slightly shorter than the browser's poll interval so every poll gets
 // fresh data, while still de-duplicating any near-simultaneous requests.
 $pollSeconds = max(1, (int) ($config['poll_interval_ms'] ?? 10000) / 1000);
-$lastfm = new LastFm($config['api_key'], $config['username'], max(3, $pollSeconds - 2));
+$lastfm = LastFm::fromConfig($config, max(3, $pollSeconds - 2));
 $listenLinks = new ListenLinks($config, __DIR__);
 $spotify = new Spotify($config['spotify_client_id'] ?? '', $config['spotify_client_secret'] ?? '');
 $appleMusic = new AppleMusic(__DIR__);
@@ -56,7 +56,7 @@ if (!$track) {
 
 $isNowPlaying = ($track['@attr']['nowplaying'] ?? '') === 'true';
 $artist = $track['artist']['#text'] ?? ($track['artist']['name'] ?? '');
-$album = $track['album']['#text'] ?? '';
+$album = ($track['album']['#text'] ?? '') ?: $lastfm->getTrackAlbum($artist, $track['name'] ?? '');
 $art = $spotify->resolveTrackArt($lastfm, $artist, $track['name'] ?? '', $track['image'] ?? [], $appleMusic);
 $previousTrackRaw = LastFm::findPreviousTrack($tracks, $artist, $track['name'] ?? '');
 
@@ -67,7 +67,7 @@ if ($previousTrackRaw) {
         'name'        => $previousTrackRaw['name'] ?? '',
         'artist'      => $previousArtist,
         'source'      => $previousTrackRaw['_source'] ?? 'Last.fm',
-        'album'       => $previousTrackRaw['album']['#text'] ?? '',
+        'album'       => ($previousTrackRaw['album']['#text'] ?? '') ?: $lastfm->getTrackAlbum($previousArtist, $previousTrackRaw['name'] ?? ''),
         'image'       => $spotify->resolveTrackArt($lastfm, $previousArtist, $previousTrackRaw['name'] ?? '', $previousTrackRaw['image'] ?? [], $appleMusic),
         'track_stats' => $lastfm->getTrackStats($previousArtist, $previousTrackRaw['name'] ?? ''),
         'insights'    => $library->trackInsights($previousArtist, $previousTrackRaw['name'] ?? '', $tz),

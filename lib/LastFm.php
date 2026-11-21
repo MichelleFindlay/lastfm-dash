@@ -74,6 +74,13 @@ class LastFm
     private int $cacheTtl;
     private string $cacheDir;
     private string $apiBase;
+    private ?SourceUserApi $userDelegate = null;
+
+    /** @var callable|null returns LibrarySync::localCounts()-shaped totals, or null */
+    private $localCounts = null;
+
+    /** @var ScrobbleSource[] services whose loved tracks also count as loved here */
+    private array $lovedSources = [];
 
     public const DEFAULT_API_BASE = 'https://ws.audioscrobbler.com/2.0/';
 
@@ -96,6 +103,86 @@ class LastFm
         }
     }
 
+    /** A config value that's actually filled in — not blank and not the sample file's YOUR_... placeholder. */
+    public static function isFilledIn($value): bool
+    {
+        $value = trim((string) $value);
+
+        return $value !== '' && strpos($value, 'YOUR_') !== 0;
+    }
+
+    /**
+     * Last.fm is optional: the dashboard runs on any one of
+     * Last.fm, ListenBrainz or Libre.fm. True when both the API key and the
+     * username are set, i.e. there's a Last.fm account to read history from.
+     */
+    public static function userConfigured(array $config): bool
+    {
+        return self::isFilledIn($config['api_key'] ?? '') && self::isFilledIn($config['username'] ?? '');
+    }
+
+    /**
+     * Builds the Last.fm client from config.php. Blank or placeholder values
+     * become '', which the client treats as "not configured" (see call()).
+     */
+    public static function fromConfig(array $config, int $cacheTtl): self
+    {
+        $key = self::isFilledIn($config['api_key'] ?? '') ? trim((string) $config['api_key']) : '';
+        $user = self::isFilledIn($config['username'] ?? '') ? trim((string) $config['username']) : '';
+
+        return new self($key, $user, $cacheTtl);
+    }
+
+    /** True if there's an API key, so non-user lookups (track info, artist tags) work. */
+    public function hasKey(): bool
+    {
+        return $this->apiKey !== '';
+    }
+
+    /**
+     * With no Last.fm username, user.* calls (and, with no API key either,
+     * artist tags) are answered by $delegate from ListenBrainz/Libre.fm
+     * instead — see lib/SourceUserApi.php. Set by LibrarySync::fromConfig().
+     */
+    public function setUserDelegate(?SourceUserApi $delegate): void
+    {
+        $this->userDelegate = $delegate;
+    }
+
+    /**
+     * ListenBrainz/Libre.fm accounts whose loved tracks should also show the
+     * loved heart, alongside Last.fm's own. Set by LibrarySync::fromConfig().
+     *
+     * @param ScrobbleSource[] $sources
+     */
+    public function setLovedSources(array $sources): void
+    {
+        $this->lovedSources = $sources;
+    }
+
+    /**
+     * With ListenBrainz/Libre.fm imports alongside a Last.fm account,
+     * Last.fm's own account totals only count Last.fm scrobbles. $provider
+     * returns LibrarySync::localCounts(true) (null until something is
+     * imported), which getInfo() folds in. Set by LibrarySync::fromConfig().
+     */
+    public function setLocalCountsProvider(?callable $provider): void
+    {
+        $this->localCounts = $provider;
+    }
+
+    /** The service answering user.* calls in Last.fm's place, if any. */
+    public function userDelegate(): ?SourceUserApi
+    {
+        return $this->userDelegate;
+    }
+
+    /** True if there's an API key and a username, so user.* history/stats calls work. */
+    public function hasUser(): bool
+    {
+        return $this->apiKey !== '' && $this->user !== '';
+    }
+
     /**
      * Call a Last.fm API method, transparently caching the JSON response.
      * Pass $ttlOverride for calls (like per-track art lookups) that should
@@ -113,11 +200,25 @@ class LastFm
      */
     public function call(string $method, array $params = [], ?int $ttlOverride = null, bool $cacheOnly = false, ?callable $isCacheable = null): ?array
     {
+        // Not configured: answer "no data" straight away instead of making a
+        // request Last.fm is bound to reject. No key means nothing works; a
+        // key with no username still allows non-user lookups such as album
+        // art and artist tags (handy alongside ListenBrainz/Libre.fm).
+        if ($this->userDelegate !== null && $this->userDelegate->handles($method, $this->hasKey())) {
+            return $this->userDelegate->call($method, $params, $ttlOverride ?? $this->cacheTtl, $cacheOnly);
+        }
+
+        if (!$this->hasKey() || ($this->user === '' && strpos($method, 'user.') === 0)) {
+            return null;
+        }
+
         $ttl = $ttlOverride ?? $this->cacheTtl;
 
-        $params = array_merge([
-            'method'   => $method,
-            'user'     => $this->user,
+        $base = ['method' => $method];
+        if ($this->user !== '') {
+            $base['user'] = $this->user;
+        }
+        $params = array_merge($base + [
             'api_key'  => $this->apiKey,
             'format'   => 'json',
         ], $params);
@@ -176,7 +277,23 @@ class LastFm
             return (int) ($decoded['user']['playcount'] ?? 0) > 0;
         });
 
-        return $data['user'] ?? null;
+        $user = $data['user'] ?? null;
+
+        // Imports enabled: add the imported plays Last.fm doesn't have, from
+        // the first one imported (Last.fm's own live total stays the base, so
+        // it still ticks up between cron runs). Artists/tracks use the
+        // library's merged distinct counts once they pass Last.fm's. Albums
+        // stay Last.fm's: imported listens carry no album.
+        $local = ($user !== null && $this->localCounts !== null) ? ($this->localCounts)() : null;
+        if ($local !== null) {
+            $user['playcount'] = (string) ((int) ($user['playcount'] ?? 0) + (int) $local['imports_only']);
+            $user['artist_count'] = (string) max((int) ($user['artist_count'] ?? 0), (int) $local['artists']);
+            $user['track_count'] = (string) max((int) ($user['track_count'] ?? 0), (int) $local['tracks']);
+            $registered = (int) ($user['registered']['unixtime'] ?? 0);
+            $user['registered'] = ['unixtime' => (string) ($registered > 0 ? min($registered, (int) $local['first']) : (int) $local['first'])];
+        }
+
+        return $user;
     }
 
     /**
@@ -198,9 +315,11 @@ class LastFm
         return [
             'scrobbles'    => number_format($playcount),
             'avg_day'      => $daysSince > 0 ? number_format($playcount / $daysSince, 1) : '—',
-            'artists'      => number_format((int) ($userInfo['artist_count'] ?? 0)),
-            'albums'       => number_format((int) ($userInfo['album_count'] ?? 0)),
-            'tracks'       => number_format((int) ($userInfo['track_count'] ?? 0)),
+            // "—" when the source doesn't report a count (ListenBrainz/Libre.fm
+            // have no album totals, nor artist/track totals until imported).
+            'artists'      => isset($userInfo['artist_count']) ? number_format((int) $userInfo['artist_count']) : '—',
+            'albums'       => isset($userInfo['album_count']) ? number_format((int) $userInfo['album_count']) : '—',
+            'tracks'       => isset($userInfo['track_count']) ? number_format((int) $userInfo['track_count']) : '—',
             'member_since' => $registeredUnix > 0 ? date('j M Y', $registeredUnix) : '—',
         ];
     }
@@ -210,7 +329,7 @@ class LastFm
      * arbitrary key, for caching computed results (not just raw API
      * responses) — e.g. the whole genre breakdown, not just its sub-calls.
      */
-    private function cached(string $key, int $ttl, callable $compute)
+    private function cached(string $key, int $ttl, callable $compute, bool $skipEmpty = false)
     {
         $cacheFile = $this->cacheDir . '/' . $key . '.json';
 
@@ -223,7 +342,9 @@ class LastFm
 
         $result = $compute();
 
-        if ($ttl > 0) {
+        // $skipEmpty: an empty result just means "no data yet" (e.g. genres
+        // before any artist is tagged), so don't pin it for the whole TTL.
+        if ($ttl > 0 && !($skipEmpty && empty($result))) {
             @file_put_contents($cacheFile, json_encode($result));
         }
 
@@ -260,6 +381,12 @@ class LastFm
 
     public function getRecentTracks(int $limit = 1): ?array
     {
+        // Now Playing merges ListenBrainz/Libre.fm in itself (ScrobbleSources::
+        // mergeRecent()); going through the delegate here would list them twice.
+        if (!$this->hasUser()) {
+            return null;
+        }
+
         return $this->call('user.getrecenttracks', ['limit' => $limit, 'extended' => 1]);
     }
 
@@ -360,7 +487,9 @@ class LastFm
      * scrobbles, your own all-time playcount for this exact track (Last.fm
      * personalizes the response since every call already carries the
      * configured username), its duration, and whether you've "loved"
-     * (hearted) it on Last.fm.
+     * (hearted) it on Last.fm, ListenBrainz or Libre.fm. With no Last.fm
+     * API key, SourceUserApi answers the track.getInfo lookup instead
+     * (ListenBrainz popularity data, then Deezer).
      *
      * @return array{listeners: int, playcount: int, userplaycount: int, duration: int, loved: bool} duration in seconds
      */
@@ -371,9 +500,12 @@ class LastFm
         return [
             'listeners'     => (int) ($data['listeners'] ?? 0),
             'playcount'     => (int) ($data['playcount'] ?? 0),
-            'userplaycount' => (int) ($data['userplaycount'] ?? 0),
+            'userplaycount' => ($this->userDelegate !== null)
+                ? $this->userDelegate->userPlaycount($artist, $track) // from local ListenBrainz/Libre.fm history
+                : (int) ($data['userplaycount'] ?? 0),
             'duration'      => (int) round(((int) ($data['duration'] ?? 0)) / 1000),
-            'loved'         => ($data['userloved'] ?? '0') === '1',
+            'loved'         => ($data['userloved'] ?? '0') === '1'
+                || (!empty($this->lovedSources) && isset(ScrobbleSources::lovedKeys($this->lovedSources)[ScrobbleSources::matchKey($artist, $track)])),
         ];
     }
 
@@ -415,9 +547,14 @@ class LastFm
     {
         $cacheKey = 'genres_' . md5($this->user . $period . $artistLimit . $genreLimit . ($onlySpotifyGenres ? '1' : '0'));
 
-        return $this->cached($cacheKey, 86400, function () use ($period, $artistLimit, $genreLimit, $onlySpotifyGenres) {
+        // Running on ListenBrainz/Libre.fm, artist tags arrive gradually (cron
+        // tags a batch per run), so recompute every 15 minutes rather than
+        // holding a partial breakdown for a whole day.
+        $ttl = $this->userDelegate !== null ? 900 : 86400;
+
+        return $this->cached($cacheKey, $ttl, function () use ($period, $artistLimit, $genreLimit, $onlySpotifyGenres) {
             return $this->computeTopGenres($period, $artistLimit, $genreLimit, $onlySpotifyGenres);
-        });
+        }, $this->userDelegate !== null);
     }
 
     /**

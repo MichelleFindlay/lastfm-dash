@@ -11,13 +11,13 @@ class Mcp
 {
     private const WIDGET_TOOLS = [
         'listening_clock' => 'A 24-hour breakdown of when you actually listen, hour by hour.',
-        'energy_curve'    => 'Scrobble activity across the days of the week (listening volume, not audio tempo — Last.fm has no tempo data).',
+        'energy_curve'    => 'Scrobble activity across the days of the week (listening volume, not audio tempo — scrobbles carry no tempo data).',
         'distance'        => 'Estimated total listening time, converted into flights, marathons, full days, and (for heavy listeners) trips to the Moon or Mars, each with how far into the current unit you are.',
         'festival'        => 'Your top artists billed as a festival poster (headliner / main stage / tent stage tiers by play rank).',
         'mood'            => "A monthly emotional forecast derived from your top artists' community tags.",
-        'bpm'             => 'Average tempo across a sample of your top tracks, sourced from Deezer since Last.fm has no tempo data of its own.',
-        'before_famous'   => 'Your top artists with the lowest current global Last.fm listener counts, verified against Spotify when configured.',
-        'obscurity'       => 'Average/median global Last.fm listener count across your top artists — how mainstream your taste really is.',
+        'bpm'             => 'Average tempo across a sample of your top tracks, sourced from Deezer since scrobble services have no tempo data of their own.',
+        'before_famous'   => 'Your top artists with the lowest current global listener counts (Last.fm, or ListenBrainz when no Last.fm API key is set), verified against Spotify when configured.',
+        'obscurity'       => 'Average/median global listener count (Last.fm, or ListenBrainz when no Last.fm API key is set) across your top artists — how mainstream your taste really is.',
     ];
 
     private const PERIODS = ['all_time', 'this_year', 'this_month', 'this_week', 'today'];
@@ -185,7 +185,7 @@ class Mcp
                 'source' => $track['_source'] ?? 'Last.fm',
                 'name'   => $track['name'] ?? '',
                 'artist' => $artist,
-                'album'  => $track['album']['#text'] ?? '',
+                'album'  => ($track['album']['#text'] ?? '') ?: $this->lastfm->getTrackAlbum($artist, $track['name'] ?? ''),
                 'date'   => $track['date']['#text'] ?? null,
             ],
             'previous' => $previousRaw ? [

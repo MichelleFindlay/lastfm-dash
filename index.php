@@ -121,9 +121,11 @@ $config += [
     'mcp_api_key'           => '',
 ];
 
-$needsSetup = $configMissing
-    || empty($config['api_key']) || $config['api_key'] === 'YOUR_LASTFM_API_KEY'
-    || empty($config['username']) || $config['username'] === 'YOUR_LASTFM_USERNAME';
+// Any one of Last.fm (api_key + username), ListenBrainz or Libre.fm is
+// enough to run the dashboard — see lib/ScrobbleSources.php.
+$lastfmConfigured = !$configMissing && LastFm::userConfigured($config);
+$importSources = $configMissing ? [] : ScrobbleSources::fromConfig($config);
+$needsSetup = $configMissing || (!$lastfmConfigured && empty($importSources));
 
 $lastfm = null;
 $nowPlaying = null;
@@ -134,7 +136,7 @@ $lifetimeStats = [];
 $apiError = false;
 
 if (!$needsSetup) {
-    $lastfm = new LastFm($config['api_key'], $config['username'], (int) $config['cache_ttl']);
+    $lastfm = LastFm::fromConfig($config, (int) $config['cache_ttl']);
     $listenLinks = new ListenLinks($config, __DIR__);
     $spotify = new Spotify($config['spotify_client_id'] ?? '', $config['spotify_client_secret'] ?? '');
     $appleMusic = new AppleMusic(__DIR__);
@@ -155,7 +157,7 @@ if (!$needsSetup) {
 
     if ($recentTrack) {
         $artist = $recentTrack['artist']['#text'] ?? ($recentTrack['artist']['name'] ?? '');
-        $album = $recentTrack['album']['#text'] ?? '';
+        $album = ($recentTrack['album']['#text'] ?? '') ?: $lastfm->getTrackAlbum($artist, $recentTrack['name'] ?? '');
         $art = $spotify->resolveTrackArt($lastfm, $artist, $recentTrack['name'] ?? '', $recentTrack['image'] ?? [], $appleMusic);
         $listen = $listenLinks->forTrack($artist, $recentTrack['name'] ?? '');
 
@@ -188,7 +190,7 @@ if (!$needsSetup) {
         $previousTrack = [
             'name'        => $previousTrackRaw['name'] ?? '',
             'artist'      => $previousArtist,
-            'album'       => $previousTrackRaw['album']['#text'] ?? '',
+            'album'       => ($previousTrackRaw['album']['#text'] ?? '') ?: $lastfm->getTrackAlbum($previousArtist, $previousTrackRaw['name'] ?? ''),
             'image'       => $spotify->resolveTrackArt($lastfm, $previousArtist, $previousTrackRaw['name'] ?? '', $previousTrackRaw['image'] ?? [], $appleMusic),
             'track_stats' => $lastfm->getTrackStats($previousArtist, $previousTrackRaw['name'] ?? ''),
             'insights'    => $library->trackInsights($previousArtist, $previousTrackRaw['name'] ?? '', $tz),
@@ -220,6 +222,7 @@ if (!$needsSetup) {
             $spotifyAvailable
         );
 
+    // With no Last.fm account, getInfo() is answered by ListenBrainz/Libre.fm (lib/SourceUserApi.php).
     $statsMap = LastFm::formatLifetimeStats($lastfm->getInfo());
     if ($statsMap) {
         $lifetimeStats = [
@@ -240,7 +243,7 @@ $widgetDefs = [
     ['id' => 'festival', 'icon' => 'tent', 'title' => 'If Your Year Were a Festival', 'teaser' => 'Your top artists, billed as a festival lineup'],
     ['id' => 'mood', 'icon' => 'cloud-sun', 'title' => 'Mood Weather', 'teaser' => "This month's emotional forecast"],
     ['id' => 'bpm', 'icon' => 'heart-pulse', 'title' => 'BPM Average', 'teaser' => 'Your heart rate, if music were a pulse'],
-    ['id' => 'before_famous', 'icon' => 'sprout', 'title' => 'Before They Were Famous', 'teaser' => "Your favourites Last.fm listeners haven't caught onto yet"],
+    ['id' => 'before_famous', 'icon' => 'sprout', 'title' => 'Before They Were Famous', 'teaser' => 'Your favourites ' . (($lastfm !== null && !$lastfm->hasKey() && !empty($importSources)) ? 'ListenBrainz' : 'Last.fm') . " listeners haven't caught onto yet"],
     ['id' => 'obscurity', 'icon' => 'telescope', 'title' => 'Obscurity Index', 'teaser' => 'How mainstream your top artists really are, by the numbers'],
 ];
 
@@ -288,12 +291,13 @@ if (!empty($config['github_repo'])) {
     <?php if ($needsSetup): ?>
         <div class="error-banner">
             <strong>Setup needed:</strong> copy <code>config.sample.php</code> to <code>config.php</code>
-            and fill in your Last.fm <code>api_key</code> and <code>username</code>.
+            and fill in at least one of: your Last.fm <code>api_key</code> and <code>username</code>,
+            <code>listenbrainz_username</code>, or <code>librefm_username</code>.
         </div>
     <?php elseif ($apiError): ?>
         <div class="error-banner">
-            Couldn't reach the Last.fm API, or no scrobbles were found for
-            <strong><?= e($config['username']) ?></strong>. Check the username and API key in
+            Couldn't reach <?= e(implode(' / ', array_merge($lastfmConfigured ? ['Last.fm'] : [], array_map(fn($s) => $s->label(), $importSources)))) ?>,
+            or no scrobbles were found yet. Check the usernames<?= $lastfmConfigured ? ' and API key' : '' ?> in
             <code>config.php</code>.
         </div>
     <?php endif; ?>
@@ -506,7 +510,7 @@ if (!empty($config['github_repo'])) {
         }
 
         return '<span class="loved-heart-badge"' . ($attr !== '' ? ' ' . $attr : '') . ($loved ? '' : ' style="display:none"') . '>'
-            . '<svg class="loved-heart" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><title>Loved on Last.fm</title>'
+            . '<svg class="loved-heart" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><title>Loved</title>'
             . '<path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></span>';
     }
 
@@ -767,12 +771,29 @@ if (!empty($config['github_repo'])) {
     <footer class="site-footer">
         <?php if (!$needsSetup): ?>
             <div class="lastfm-profile-line">
+                <?php if ($lastfmConfigured): ?>
                 <a href="https://www.last.fm/user/<?= e($config['username']) ?>" target="_blank" rel="noopener">
                     <svg class="lastfm-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
                         <path fill="currentColor" d="M10.584 17.21l-.88-2.392s-1.43 1.594-3.573 1.594c-1.897 0-3.244-1.649-3.244-4.288 0-3.382 1.704-4.591 3.381-4.591 2.42 0 3.189 1.567 3.849 3.574l.88 2.749c.88 2.666 2.529 4.81 7.285 4.81 3.409 0 5.718-1.044 5.718-3.793 0-2.227-1.265-3.381-3.63-3.931l-1.758-.385c-1.21-.275-1.567-.77-1.567-1.595 0-.934.742-1.484 1.952-1.484 1.32 0 2.034.495 2.144 1.677l2.749-.33c-.22-2.474-1.924-3.492-4.729-3.492-2.474 0-4.893.935-4.893 3.932 0 1.87.907 3.051 3.189 3.601l1.87.44c1.402.33 1.869.907 1.869 1.704 0 1.017-.99 1.43-2.86 1.43-2.776 0-3.93-1.457-4.59-3.464l-.907-2.75c-1.155-3.573-2.997-4.893-6.653-4.893C2.144 5.333 0 7.89 0 12.233c0 4.18 2.144 6.434 5.993 6.434 3.106 0 4.591-1.457 4.591-1.457z"></path>
                     </svg>
                     <span><?= e($config['username']) ?></span>
                 </a>
+                <?php endif; ?>
+                <?php
+                // Same marks as the "Powered by" line below. ListenBrainz keeps its
+                // orange half; its navy half uses the text colour so it shows on
+                // the dark background.
+                $sourceIcons = [
+                    'ListenBrainz' => '<svg class="profile-icon" viewBox="0 0 27 30" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M13 1L1 8v14l12 7z"></path><path fill="#eb743b" d="M14 1l12 7v14l-12 7z"></path></svg>',
+                    'Libre.fm'     => '<svg class="profile-icon" viewBox="142.66 182.40 35.21 35.21" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="m 149.97125,186.36764 c 0,-1.23526 0.41912,-2.20585 1.25736,-2.91176 0.70587,-0.70585 1.63234,-1.05879 2.77941,-1.05883 0.88234,4e-5 1.76469,0.37504 2.64706,1.125 0.7941,0.70592 1.19116,1.65445 1.19117,2.84559 l -0.46323,23.69118 9.92647,-0.46323 c 1.01468,0 1.8088,0.39706 2.38235,1.19117 0.57351,0.75001 0.86027,1.78677 0.8603,3.1103 -3e-5,1.05882 -0.28679,1.94117 -0.8603,2.64705 -0.52943,0.70589 -1.32355,1.05883 -2.38235,1.05883 h -13.96324 c -0.79412,0 -1.56618,-0.30882 -2.31617,-0.92647 -0.70589,-0.57353 -1.05883,-1.27941 -1.05883,-2.11765 z"></path></svg>',
+                ];
+                ?>
+                <?php foreach ($importSources as $source): ?>
+                <a href="<?= e($source->profileUrl()) ?>" target="_blank" rel="noopener" title="<?= e($source->label()) ?>" aria-label="<?= e($source->label()) ?> profile: <?= e($source->username()) ?>">
+                    <?= $sourceIcons[$source->label()] ?? '' ?>
+                    <span><?= e($source->username()) ?></span>
+                </a>
+                <?php endforeach; ?>
             </div>
         <?php endif; ?>
         <div class="powered-by-line">

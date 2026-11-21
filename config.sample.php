@@ -6,7 +6,11 @@
  * Get an API key at: https://www.last.fm/api/account/create
  */
 return [
-    // Required
+    // Last.fm account. Needed unless you set listenbrainz_username or
+    // librefm_username below instead: the dashboard runs on any one of the
+    // three. With no Last.fm username, the whole dashboard runs on
+    // ListenBrainz (or Libre.fm). An api_key with no username still adds
+    // Last.fm's global listener counts, album art and genre tags.
     'api_key'  => 'YOUR_LASTFM_API_KEY',
     'username' => 'YOUR_LASTFM_USERNAME',
 
@@ -69,8 +73,8 @@ return [
     //    several at once doesn't double-count anything.
     //  - The Now Playing card also checks it live, so a track playing there
     //    (but not on Last.fm) still shows up, marked "via ListenBrainz" etc.
-    // Last.fm stays the primary account — api_key/username above are still
-    // required. Leave a username blank (the default) to disable it.
+    // Works alongside Last.fm, or on its own with Last.fm left blank. Leave
+    // a username blank (the default) to disable that service.
     'listenbrainz_username' => '',
     // Optional ListenBrainz user token (https://listenbrainz.org/settings/)
     // — only needed if your listens aren't public. Server-side only.

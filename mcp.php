@@ -96,7 +96,7 @@ $method = $request['method'];
 $params = is_array($request['params'] ?? null) ? $request['params'] : [];
 $isNotification = !array_key_exists('id', $request);
 
-$lastfm = new LastFm($config['api_key'], $config['username'], (int) ($config['cache_ttl'] ?? 60));
+$lastfm = LastFm::fromConfig($config, (int) ($config['cache_ttl'] ?? 60));
 $widgets = new Widgets($lastfm, $config);
 $library = LibrarySync::fromConfig($lastfm, $config);
 $mcp = new Mcp($lastfm, $widgets, $library, $config);

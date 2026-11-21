@@ -86,7 +86,7 @@ if (!$isCli) {
     }
 }
 
-$lastfm = new LastFm($config['api_key'], $config['username'], (int) ($config['cache_ttl'] ?? 60));
+$lastfm = LastFm::fromConfig($config, (int) ($config['cache_ttl'] ?? 60));
 $widgets = new Widgets($lastfm, $config);
 $library = LibrarySync::fromConfig($lastfm, $config);
 $handlers = WidgetRegistry::handlers($lastfm, $widgets, $config, $library);
@@ -207,7 +207,7 @@ $summary = sprintf(
     $failed ? 'failed: ' . implode(', ', $failed) : 'all ok'
 );
 
-if (isset($backfill)) {
+if (isset($backfill) && $lastfm->hasUser()) {
     $summary .= $backfill['complete']
         ? ' — library backfill complete'
         : sprintf(' — library backfill: +%d pages, +%d scrobbles this run', $backfill['pages'], $backfill['scrobbles']);
@@ -220,7 +220,7 @@ foreach ($importBackfill ?? [] as $id => $r) {
     } elseif ($r['complete']) {
         $summary .= sprintf(' — %s import complete (+%d new)', $r['label'], $synced);
     } else {
-        $summary .= sprintf(' — %s import: +%d pages, +%d scrobbles this run (+%d new)', $r['label'], $r['pages'], $r['scrobbles'], $synced);
+        $summary .= sprintf(' — %s import%s: +%d pages, +%d scrobbles this run (+%d new)', $r['label'], !empty($r['rescan']) ? ' (re-scanning: the service has listens we missed)' : '', $r['pages'], $r['scrobbles'], $synced);
     }
 }
 

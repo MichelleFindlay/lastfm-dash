@@ -39,7 +39,7 @@ if (!is_file($configFile)) {
 $config = require $configFile;
 $id = $_GET['id'] ?? '';
 
-$lastfm = new LastFm($config['api_key'], $config['username'], (int) ($config['cache_ttl'] ?? 60));
+$lastfm = LastFm::fromConfig($config, (int) ($config['cache_ttl'] ?? 60));
 $widgets = new Widgets($lastfm, $config);
 $library = LibrarySync::fromConfig($lastfm, $config);
 $handlers = WidgetRegistry::handlers($lastfm, $widgets, $config, $library);
