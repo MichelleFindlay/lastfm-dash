@@ -53,8 +53,11 @@ class LibrarySync
     public function __construct(LastFm $lastfm, string $user, array $sources = [], int $dedupeSeconds = 180)
     {
         $this->lastfm = $lastfm;
-        $this->file = __DIR__ . '/../cache/library_' . md5($user) . '.json.gz';
         $this->sources = $sources;
+        // Keyed by the Last.fm username as before (so existing snapshots are
+        // kept); without a Last.fm account, by the import sources instead.
+        $key = ($lastfm->hasUser() && $user !== '') ? $user : implode('|', array_map(fn($s) => $s->id(), $sources));
+        $this->file = __DIR__ . '/../cache/library_' . md5($key) . '.json.gz';
         $this->dedupeSeconds = max(0, $dedupeSeconds);
     }
 
@@ -65,7 +68,24 @@ class LibrarySync
      */
     public static function fromConfig(LastFm $lastfm, array $config): self
     {
-        return new self($lastfm, $config['username'], ScrobbleSources::fromConfig($config), ScrobbleSources::dedupeSeconds($config));
+        $sources = ScrobbleSources::fromConfig($config);
+        $library = new self($lastfm, trim((string) ($config['username'] ?? '')), $sources, ScrobbleSources::dedupeSeconds($config));
+
+        // No Last.fm account: the first configured service (ListenBrainz,
+        // else Libre.fm) answers every Last.fm user.* call in its place, so
+        // widgets, panels, Lifetime Stats and the MCP tools all run on it.
+        if (!$lastfm->hasUser() && !empty($sources)) {
+            $lastfm->setUserDelegate(new SourceUserApi($sources[0], $library));
+        }
+        $lastfm->setLovedSources($sources);
+
+        // Last.fm account plus imports: Lifetime Stats include imported plays.
+        // (With no Last.fm account, SourceUserApi::info() already does this.)
+        if ($lastfm->hasUser() && !empty($sources)) {
+            $lastfm->setLocalCountsProvider(fn() => $library->localCounts(true));
+        }
+
+        return $library;
     }
 
     private function load(): array
@@ -148,9 +168,17 @@ class LibrarySync
         $hi = max($timestamps) + $window;
 
         // Only other services' entries near this batch's time range can match.
+        // This service's own entries are indexed too, by exact timestamp, so
+        // re-walking history it already imported (see backfillImports())
+        // doesn't add them twice.
         $index = [];
+        $own = [];
         foreach ($state['scrobbles'] as $s) {
-            if ($s[2] < $lo || $s[2] > $hi || ($s[3] ?? ScrobbleSources::LASTFM_ID) === $service) {
+            if ($s[2] < $lo || $s[2] > $hi) {
+                continue;
+            }
+            if (($s[3] ?? ScrobbleSources::LASTFM_ID) === $service) {
+                $own[ScrobbleSources::matchKey($s[0], $s[1]) . "\x02" . $s[2]] = true;
                 continue;
             }
             $index[ScrobbleSources::matchKey($s[0], $s[1])][] = $s[2];
@@ -159,6 +187,9 @@ class LibrarySync
         $added = 0;
         foreach ($incoming as $s) {
             $key = ScrobbleSources::matchKey($s[0], $s[1]);
+            if (isset($own[$key . "\x02" . $s[2]])) {
+                continue; // already imported from this service
+            }
             $best = null;
             $bestDiff = PHP_INT_MAX;
             foreach ($index[$key] ?? [] as $i => $ts) {
@@ -171,6 +202,9 @@ class LibrarySync
 
             if ($best !== null) {
                 unset($index[$key][$best]); // consumed: one play absorbs one duplicate
+                // Another service already holds this play. Counted per service
+                // for localCounts() and backfillImports()'s completeness check.
+                $state['dropped'][$service] = (int) ($state['dropped'][$service] ?? 0) + 1;
                 continue;
             }
 
@@ -197,8 +231,12 @@ class LibrarySync
     /** True once Last.fm and every enabled import source have backfilled to the very start. */
     private function fullyBackfilled(array $state): bool
     {
-        if (!$state['backfill_complete']) {
+        // Without a Last.fm account there's no Last.fm backfill to wait for.
+        if ($this->lastfm->hasUser() && !$state['backfill_complete']) {
             return false;
+        }
+        if (!$this->lastfm->hasUser() && empty($this->sources)) {
+            return false; // nothing configured at all
         }
 
         foreach ($this->sources as $source) {
@@ -213,7 +251,12 @@ class LibrarySync
     /** The most recent "backfilled back to" point across Last.fm and every enabled source. */
     private function effectiveBackfillBefore(array $state): int
     {
-        $before = (int) $state['backfill_before'];
+        if (!$this->lastfm->hasUser() && empty($this->sources)) {
+            return PHP_INT_MAX; // nothing configured at all — covers nothing
+        }
+
+        // Without a Last.fm account only the import sources limit coverage.
+        $before = $this->lastfm->hasUser() ? (int) $state['backfill_before'] : 0;
 
         foreach ($this->sources as $source) {
             $imp = $state['imports'][$source->id()] ?? null;
@@ -238,6 +281,10 @@ class LibrarySync
      */
     public function backfillBatch(int $maxPages): array
     {
+        if (!$this->lastfm->hasUser()) {
+            return ['pages' => 0, 'scrobbles' => 0, 'complete' => true]; // no Last.fm account configured
+        }
+
         $state = $this->load();
 
         if ($state['backfill_complete']) {
@@ -319,6 +366,10 @@ class LibrarySync
      */
     public function syncRecent(): array
     {
+        if (!$this->lastfm->hasUser()) {
+            return ['scrobbles' => 0]; // no Last.fm account configured
+        }
+
         $state = $this->load();
         $since = $state['synced_through'];
         $added = 0;
@@ -430,6 +481,19 @@ class LibrarySync
             $imp = $this->importEntry($state, $source);
             $result = ['label' => $source->label(), 'pages' => 0, 'scrobbles' => 0, 'complete' => (bool) $imp['backfill_complete']];
 
+            if ($imp['backfill_complete'] && $this->missingHistory($state, $source, $imp)) {
+                // History was added on the service after we finished (e.g. a
+                // Spotify or Last.fm import into ListenBrainz). Those listens
+                // have old timestamps, so the forward sync never sees them:
+                // walk the whole history again. Already-imported listens are
+                // skipped by mergeScrobbles(), and drops are recounted.
+                $imp['backfill_complete'] = false;
+                $imp['backfill_before'] = time();
+                $state['dropped'][self::serviceOf($source->id())] = 0;
+                $result['complete'] = false;
+                $result['rescan'] = true;
+            }
+
             if (!$imp['backfill_complete']) {
                 try {
                     $batch = $source->fetchBefore((int) $imp['backfill_before'], max(1, $maxPages));
@@ -455,6 +519,39 @@ class LibrarySync
         $this->save($state);
 
         return $results;
+    }
+
+    /**
+     * True when $source reports noticeably more listens than this library
+     * has seen from it (kept, plus dropped as another service's duplicate).
+     * Checked at most every 6 hours; the margin allows for listens made
+     * since the last sync.
+     */
+    private function missingHistory(array $state, ScrobbleSource $source, array &$imp): bool
+    {
+        if (time() - (int) ($imp['checked_at'] ?? 0) < 21600) {
+            return false;
+        }
+        $imp['checked_at'] = time();
+
+        try {
+            $live = (int) ($source->nativeUserCall('user.getinfo', [])['user']['playcount'] ?? 0);
+        } catch (Throwable $e) {
+            return false;
+        }
+        if ($live <= 0) {
+            return false;
+        }
+
+        $service = self::serviceOf($source->id());
+        $seen = (int) ($state['dropped'][$service] ?? 0);
+        foreach ($state['scrobbles'] as $s) {
+            if (($s[3] ?? ScrobbleSources::LASTFM_ID) === $service) {
+                $seen++;
+            }
+        }
+
+        return $live > $seen + max(25, (int) ($live * 0.01));
     }
 
     /**
@@ -592,10 +689,116 @@ class LibrarySync
         return [
             'backfill_complete' => $this->fullyBackfilled($state),
             'backfill_before'   => $before === PHP_INT_MAX ? null : $before,
-            'synced_through'    => $state['synced_through'],
+            'synced_through'    => $this->lastfm->hasUser() ? $state['synced_through'] : null,
             'scrobble_count'    => count($state['scrobbles']),
+            'lastfm'            => $this->lastfm->hasUser(),
             'imports'           => $imports,
         ];
+    }
+
+    /**
+     * Totals from local history, for Lifetime Stats:
+     *  - scrobbles / artists / tracks / first: everything in the library
+     *    (merged across services, de-duplicated) and the earliest listen.
+     *  - imports_only: imported plays with no Last.fm copy, i.e. what to add
+     *    to Last.fm's own live total. Only imports inside the period Last.fm
+     *    has already backfilled count, since older ones can't have been
+     *    checked against Last.fm yet. Imports that a later Last.fm scrobble
+     *    matched (the Last.fm copy was dropped, see mergeScrobbles()) are
+     *    taken back off.
+     *  - complete: whether every service has backfilled to the start.
+     * Null with nothing imported yet, or (unless $allowPartial) until
+     * complete. Cached for 15 minutes, as api.php asks on every poll.
+     *
+     * @return array{scrobbles:int, artists:int, tracks:int, first:int, imports_only:int, complete:bool}|null
+     */
+    public function localCounts(bool $allowPartial = false): ?array
+    {
+        $state = $this->load();
+        if (empty($state['scrobbles'])) {
+            return null;
+        }
+
+        $counts = null;
+        $cacheFile = $this->file . '.counts.json';
+        if (is_file($cacheFile) && (time() - filemtime($cacheFile)) < 900) {
+            $cached = json_decode((string) file_get_contents($cacheFile), true);
+            if (is_array($cached) && isset($cached['scrobbles'], $cached['first'], $cached['imports_only'], $cached['complete'])) {
+                $counts = $cached;
+            }
+        }
+
+        if ($counts === null) {
+            $lastfmCoveredFrom = (!$this->lastfm->hasUser() || $state['backfill_complete']) ? 0 : (int) $state['backfill_before'];
+            $artists = [];
+            $tracks = [];
+            $first = PHP_INT_MAX;
+            $imports = 0;
+            foreach ($state['scrobbles'] as $s) {
+                $artistKey = strtolower($s[0]);
+                $artists[$artistKey] = true;
+                $tracks[$artistKey . "\x01" . strtolower($s[1])] = true;
+                $first = min($first, $s[2]);
+                if (isset($s[3]) && $s[2] >= $lastfmCoveredFrom) {
+                    $imports++; // imported entries carry their service as a 4th element
+                }
+            }
+
+            $counts = [
+                'scrobbles'    => count($state['scrobbles']),
+                'artists'      => count($artists),
+                'tracks'       => count($tracks),
+                'first'        => $first,
+                'imports_only' => max(0, $imports - (int) ($state['dropped'][ScrobbleSources::LASTFM_ID] ?? 0)),
+                'complete'     => $this->fullyBackfilled($state),
+            ];
+            @file_put_contents($cacheFile, json_encode($counts));
+        }
+
+        return ($allowPartial || $counts['complete']) ? $counts : null;
+    }
+
+    /**
+     * Every scrobble, newest first, as [artist, track, timestamp] — null
+     * until fully backfilled, unless $allowPartial (then whatever has been
+     * imported so far, null only if nothing has). Memoized, since a paged
+     * walk (Listening Clock) asks for one page after another.
+     *
+     * @return array<int, array{0:string, 1:string, 2:int}>|null
+     */
+    public function allScrobblesDesc(bool $allowPartial = false): ?array
+    {
+        static $memo = [];
+
+        $state = $this->load();
+        if ($allowPartial ? empty($state['scrobbles']) : !$this->fullyBackfilled($state)) {
+            return null;
+        }
+
+        $key = $this->file . ':' . count($state['scrobbles']);
+        if (!isset($memo[$key])) {
+            $all = array_map(fn($s) => [$s[0], $s[1], $s[2]], $state['scrobbles']);
+            usort($all, fn($a, $b) => $b[2] <=> $a[2]);
+            $memo = [$key => $all];
+        }
+
+        return $memo[$key];
+    }
+
+    /** How many times you've played this track, from local history (case-insensitive). */
+    public function playcountFor(string $artist, string $track): int
+    {
+        $artistLower = strtolower($artist);
+        $trackLower = strtolower($track);
+        $count = 0;
+
+        foreach ($this->load()['scrobbles'] as $s) {
+            if (strtolower($s[1]) === $trackLower && strtolower($s[0]) === $artistLower) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     /**
@@ -665,11 +868,23 @@ class LibrarySync
                 break;
             }
 
-            if ($this->lastfm->call('artist.gettoptags', ['artist' => $name], 604800, true) !== null) {
+            $cached = $this->lastfm->call('artist.gettoptags', ['artist' => $name], 604800, true);
+            $refetch = $cached !== null && !$this->lastfm->hasKey() && $this->lastfm->userDelegate() !== null
+                && SourceUserApi::needsRefetch('artist.gettoptags', $cached);
+            if ($cached !== null && !$refetch) {
                 continue; // already cached — doesn't count against this run's batch
             }
 
-            $this->lastfm->call('artist.gettoptags', ['artist' => $name], 604800);
+            // With no Last.fm API key these come from MusicBrainz (see
+            // lib/SourceUserApi.php), paced at ~1/s. This paced batch is the
+            // only place they're allowed to run live; Genre Breakdown and
+            // Mood Weather only ever read tags fetched here.
+            SourceUserApi::allowSlowLookups(true);
+            try {
+                $this->lastfm->call('artist.gettoptags', ['artist' => $name], 604800);
+            } finally {
+                SourceUserApi::allowSlowLookups(false);
+            }
             $tagged++;
         }
 

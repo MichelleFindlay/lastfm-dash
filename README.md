@@ -84,7 +84,8 @@ album art.
 ## Requirements
 
 - PHP 7.4+ (8.x recommended)
-- A Last.fm API key — get one free at
+- An account on at least one of Last.fm, ListenBrainz or Libre.fm. For
+  Last.fm you also need an API key — get one free at
   [last.fm/api/account/create](https://www.last.fm/api/account/create)
 - No database required — all caching is flat-file, under `cache/`
 
@@ -99,7 +100,8 @@ compress the local library snapshot described below.
    ```sh
    cp config.sample.php config.php
    ```
-   Edit `config.php` and set at least `api_key` and `username`. Every other
+   Edit `config.php` and set at least one of: `api_key` and `username`
+   (Last.fm), `listenbrainz_username`, or `librefm_username`. Every other
    setting has a sensible default — see the comments in `config.sample.php`
    for what each one does (poll interval, cache TTLs, panel sizes, timezone,
    widget sampling limits, etc.). `config.php` is gitignored so your API key
@@ -198,6 +200,12 @@ things:
   "via Libre.fm". "Last played" and "Previously played" likewise use
   whichever service has the newest scrobble.
 
+**History added later:** if you import older history into ListenBrainz or
+Libre.fm after the dashboard has finished importing (say, a Spotify or
+Last.fm export), `cron.php` notices within 6 hours (the service reports
+more listens than it has seen) and walks that service's history again.
+Listens it already has aren't added twice.
+
 **Double-counting:** most people who use more than one service scrobble the
 same plays to all of them. A play recorded by two services counts once:
 same artist and track (ignoring case), timestamps within
@@ -213,8 +221,49 @@ rather than showing totals that mix complete and partial histories. "Today"
 and "This week" are usually covered again after the first run.
 
 **Notes:**
-- Last.fm is still the primary account and is still required. Album art,
-  tags, track stats and lifetime stats all come from it.
+- **No Last.fm account?** Leave Last.fm's `username` blank and the whole
+  dashboard runs on ListenBrainz (or Libre.fm, if that's the only one set).
+  Every place the app would ask Last.fm for your history, top tracks/artists
+  or account stats is answered from your local imported history once it
+  covers the request, and from that service's own API until then (see
+  `lib/SourceUserApi.php`). That covers Now Playing, Favourite Tracks,
+  Trending, Lifetime Stats, Listening Clock, Energy Curve, Distance,
+  Festival, BPM and the MCP tools. ListenBrainz tracks get album art from
+  the Cover Art Archive.
+  - **Genres** (Genre Breakdown, Mood Weather) come from MusicBrainz artist
+    tags. MusicBrainz allows about one request a second, so these are only
+    looked up by `cron.php` (`library_tag_backfill_per_run` artists per run)
+    and fill in over a few runs.
+  - **Lifetime Stats:** your listen count and album total (from
+    ListenBrainz's statistics, which it recalculates every so often) show
+    straight away. Artist and track totals and "Member Since" (your first
+    listen) come from your imported history and grow as the import
+    progresses. On Libre.fm alone, Albums
+    shows "—", since Libre.fm doesn't report an album count.
+  - **Before They Were Famous / Obscurity Index** use ListenBrainz's
+    listener counts (how many ListenBrainz users play each artist) instead
+    of Last.fm's. They work for Libre.fm-only setups too, and fill in as
+    cron tags your top artists, because the artist IDs come from the same
+    MusicBrainz lookup as the genre tags. The numbers are smaller than
+    Last.fm's, as ListenBrainz has fewer users, so the Obscurity Index
+    scales them up (×20) before choosing its label.
+  - **Track details** (artwork and album for Favourite Tracks/Trending, and
+    the tooltip's global listeners, plays and duration) come from
+    ListenBrainz's public popularity data for the artist, then Deezer for
+    artwork, album and duration when ListenBrainz doesn't have the track.
+    Global listener counts appear once cron has tagged the artist.
+  - Adding just a Last.fm `api_key` (no username) switches genres, track
+    details and listener counts to Last.fm's.
+  - With both ListenBrainz and Libre.fm set, ListenBrainz answers the live
+    queries, and both feed the local history.
+- With a Last.fm account as well, album art, tags and track stats still
+  come from Last.fm. **Lifetime Stats** include your imports as soon as
+  they start arriving: Scrobbles is Last.fm's live total plus every
+  imported play Last.fm doesn't have, and Artists, Tracks and Member Since
+  are counted across every service. Albums stays Last.fm's count, since
+  imported listens carry no album.
+- **Loved tracks:** tracks you've loved on ListenBrainz or Libre.fm show the
+  loved heart too, alongside Last.fm's. The lists refresh hourly.
 - ListenBrainz listens are public by default, so a username is enough. Set
   `listenbrainz_token` (from your ListenBrainz settings page) if yours
   aren't. Libre.fm needs only a username; your Last.fm API key is never

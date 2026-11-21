@@ -544,8 +544,9 @@ class Widgets
         }
 
         return [
-            'available' => true,
-            'artists'   => array_slice($candidates, 0, 6),
+            'available'       => true,
+            'artists'         => array_slice($candidates, 0, 6),
+            'listener_source' => $this->listenerSource(),
         ];
     }
 
@@ -616,11 +617,31 @@ class Widgets
             'median_listeners' => (int) round($median),
             'sample_size'      => $count,
             'label'            => $this->obscurityLabel($median),
+            'listener_source'  => $this->listenerSource(),
         ];
     }
 
+    /**
+     * Where the global listener counts come from: Last.fm with an API key,
+     * otherwise ListenBrainz's popularity data (see lib/SourceUserApi.php).
+     */
+    private function listenerSource(): string
+    {
+        return $this->lastfm->hasKey() ? 'Last.fm' : 'ListenBrainz';
+    }
+
+    /**
+     * The thresholds are on Last.fm's scale. ListenBrainz has far fewer
+     * users (a big act has roughly 1/20 the listeners there), so its counts
+     * are scaled up to match before labelling, or everything would read as
+     * "underground".
+     */
     private function obscurityLabel(float $medianListeners): string
     {
+        if ($this->listenerSource() === 'ListenBrainz') {
+            $medianListeners *= 20;
+        }
+
         if ($medianListeners < 10000) {
             return "deeply underground — you're basically a talent scout";
         }

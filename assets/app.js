@@ -589,7 +589,7 @@
         var span = document.createElement("span");
         span.className = "loved-heart-badge";
         span.innerHTML = '<svg class="loved-heart" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">'
-            + '<title>Loved on Last.fm</title>'
+            + '<title>Loved</title>'
             + '<path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>';
         return span;
     }
@@ -755,7 +755,7 @@
 
         modalBody.appendChild(el("div", "widget-headline", "Peak day: " + data.peak_day));
         modalBody.appendChild(bars);
-        modalBody.appendChild(el("div", "widget-subtext", "Based on scrobble volume through the week — Last.fm doesn't expose real audio tempo/energy data, so this measures how much you listen, not how “energetic” the tracks are."));
+        modalBody.appendChild(el("div", "widget-subtext", "Based on scrobble volume through the week — scrobbles don't carry real audio tempo/energy data, so this measures how much you listen, not how “energetic” the tracks are."));
     }
 
     function renderDistance(data) {
@@ -784,7 +784,7 @@
             list.appendChild(li);
         });
         modalBody.appendChild(list);
-        modalBody.appendChild(el("div", "widget-subtext", "Estimated assuming ~3.5 minutes per track — Last.fm doesn't record real track durations for most scrobbles."));
+        modalBody.appendChild(el("div", "widget-subtext", "Estimated assuming ~3.5 minutes per track — scrobbles don't record real track durations."));
     }
 
     function renderFestival(data) {
@@ -896,7 +896,7 @@
         modalBody.appendChild(buildEcgMonitor(data.avg_bpm));
         modalBody.appendChild(el("div", "widget-subtext", data.pulse_label));
         modalBody.appendChild(el("div", "widget-subtext",
-            "Averaged from " + data.sample_size + " of your top tracks via Deezer's BPM data — Last.fm doesn't expose tempo itself."));
+            "Averaged from " + data.sample_size + " of your top tracks via Deezer's BPM data — scrobble services don't record tempo themselves."));
     }
 
     function renderBeforeFamous(data) {
@@ -909,13 +909,13 @@
         });
         modalBody.appendChild(list);
         modalBody.appendChild(el("div", "widget-subtext",
-            "Ranked by lowest current global Last.fm listener count — a real signal of how under-the-radar they are, though Last.fm can't tell us exactly when you first found them."));
+            "Ranked by lowest current global " + (data.listener_source || "Last.fm") + " listener count — a real signal of how under-the-radar they are, though it can't tell us exactly when you first found them."));
     }
 
     function renderObscurity(data) {
         modalBody.appendChild(el("div", "widget-headline", data.median_listeners.toLocaleString() + " median listeners"));
         modalBody.appendChild(el("div", "widget-subtext",
-            "Average " + data.avg_listeners.toLocaleString() + " listeners across " + data.sample_size + " top artists"));
+            "Average " + data.avg_listeners.toLocaleString() + " " + (data.listener_source || "Last.fm") + " listeners across " + data.sample_size + " top artists"));
         modalBody.appendChild(el("div", "widget-subtext", data.label));
     }
 
